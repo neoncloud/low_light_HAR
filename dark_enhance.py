@@ -17,10 +17,9 @@ class DarkEnhance(torch.nn.Module):
         numpx = max(width * height / 1000, 1)
         jDarkVec = jDark.flatten(1,2)
         imgVec = image.flatten(1,2)
-        _,indices = torch.sort(jDarkVec)
-        brightest_indices = indices[:,int(width * height - numpx):]
-        atmSum = imgVec[torch.arange(imgVec.shape[0]).unsqueeze(-1),brightest_indices[:,:int(numpx)]].sum(1)
-        A = atmSum / int(numpx)
+        _,indices = torch.sort(jDarkVec,stable=True)
+        #A = imgVec[torch.arange(imgVec.shape[0]).unsqueeze(-1),indices[:,int(width * height - numpx):-1]].mean(1)
+        A = torch.gather(imgVec,1,indices[:,int(width * height - numpx):-1,None]).mean(1)
         return A[:,None,None,:]
 
     def estimate_transmission(self, image:torch.Tensor, A:torch.Tensor):
@@ -30,7 +29,7 @@ class DarkEnhance(torch.nn.Module):
         return transmission
 
     def dehaze(self, image:torch.Tensor, A:torch.Tensor, transmission:torch.Tensor):
-        t0 = torch.tensor([0.15]).to(image.device)
+        t0 = torch.tensor([0.15],device=transmission.device)
         J= A + (image - A)/torch.maximum(transmission, t0).unsqueeze(-1)
         return J
 
@@ -41,4 +40,4 @@ class DarkEnhance(torch.nn.Module):
         transmission = self.estimate_transmission(HazeImg_, A)
         dehaze_image = self.dehaze(HazeImg_, A, transmission)
         dehaze_image = 1-dehaze_image / torch.amax(dehaze_image,(1,2,3),True)
-        return (dehaze_image*255).clamp(0,255)
+        return dehaze_image
