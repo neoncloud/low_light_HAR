@@ -25,16 +25,10 @@ class Sandevistan(torch.nn.Module):
         # drop some tailing frames
         x = x[:,:frames,...]
         x = rearrange(x,'b (n t) c h w -> b n t c h w',n=n)
-        x = (x[:,:,1:,...] - x[:,:,0, None, ...]).abs()
+        # leading frames of each chunk
+        y = x[:,:,0, ...]
+        x = (x[:,:,1:,...] - y[:,:,None,...]).abs()
         x = reduce(x, 'b n t c h w -> b n c h w', 'sum')
-        x = reduce(x, 'b n c h w -> b n h w', 'mean')
+        x = reduce(x, 'b n c h w -> b n 1 h w', 'mean')
         x = F.relu(x-self.thres)
-        # x_list = torch.split(x,self.n_frames,dim=1)
-        # output=[]
-        # for trunk in x_list:
-        #     start_frame = trunk[:,0,...]
-        #     trunk -= start_frame[:,None,...].clone()
-        #     trunk = trunk[:,1:,...].abs().sum(1).mean(1)
-        #     trunk = F.relu(trunk-self.thres)
-        #     output.append(trunk)
-        return x
+        return x,y
