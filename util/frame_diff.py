@@ -1,6 +1,6 @@
 from typing import Optional
 import torch
-import torch.nn.functional as F
+from torch.nn.functional import relu
 from einops import rearrange, reduce
 
 class Sandevistan(torch.nn.Module):
@@ -30,5 +30,5 @@ class Sandevistan(torch.nn.Module):
         x = (x[:,:,1:,...] - y[:,:,None,...]).abs()
         x = reduce(x, 'b n t c h w -> b n c h w', 'sum')
         x = reduce(x, 'b n c h w -> b n 1 h w', 'mean')
-        x = F.relu(x-self.thres)
+        x = relu(x-self.thres)
         return x,y
