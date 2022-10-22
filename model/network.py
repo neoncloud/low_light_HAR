@@ -1,7 +1,7 @@
 from typing import Tuple, Union
 import torch
 import torch.nn as nn
-from clip.model import CLIP, ResidualAttentionBlock, VisionTransformer, LayerNorm, Transformer
+from clip.model import CLIP, ResidualAttentionBlock, VisionTransformer, LayerNorm, Transformer, convert_weights
 from util.frame_diff import Sandevistan
 from einops import rearrange
 from model.motion_prompt import MotionPrompt
@@ -55,8 +55,8 @@ class VisionTransformer_(VisionTransformer):
 
 class SandevistanCLIP(CLIP):
     def __init__(self, embed_dim: int, image_resolution: int, vision_layers: Union[Tuple[int, int, int, int], int], vision_width: int, vision_patch_size: int, context_length: int, vocab_size: int, transformer_width: int, transformer_heads: int, transformer_layers: int, T: int=8, thres: float=4.0):
-        self.context_length = context_length
-
+        super().__init__(embed_dim, image_resolution, vision_layers, vision_width, vision_patch_size, context_length, vocab_size, transformer_width, transformer_heads, transformer_layers)
+        
         vision_heads = vision_width // 64
         self.visual = VisionTransformer_(
             input_resolution=image_resolution,
@@ -76,23 +76,8 @@ class SandevistanCLIP(CLIP):
             output_dim=embed_dim
         )
 
-        self.transformer = Transformer(
-            width=transformer_width,
-            layers=transformer_layers,
-            heads=transformer_heads,
-            attn_mask=self.build_attention_mask()
-        )
-
-        self.vocab_size = vocab_size
-        self.token_embedding = nn.Embedding(vocab_size, transformer_width)
-        self.positional_embedding = nn.Parameter(torch.empty(self.context_length, transformer_width))
-        self.ln_final = LayerNorm(transformer_width)
-
-        self.text_projection = nn.Parameter(torch.empty(transformer_width, embed_dim))
-        self.logit_scale = nn.Parameter(torch.ones([]) * torch.log(1 / 0.07).values)
         self.T = T
         self.frame_diff = Sandevistan(n_trunks=T, thres=thres)
-        self.initialize_parameters()
     
     def encode_motion(self, motion_feat: torch.Tensor, frame_feat: torch.Tensor):
         return self.motion(motion_feat, frame_feat)
@@ -106,9 +91,67 @@ class SandevistanCLIP(CLIP):
             frames = rearrange(frames, 'b t c h w -> (b t) c h w')
         class_features, frame_features = self.visual(frames.type(self.dtype))
         motion_features = self.encode_motion(motion_feat,frame_features)
-        
+        del frame_features
         class_features = class_features.view(b, -1, *class_features.shape[1:]).mean(1)
         motion_features = motion_features.view(b, -1, *motion_features.shape[1:]).mean(1)
 
         video_features = (class_features+motion_features)/2
         return video_features
+
+def build_model(state_dict: dict, T=8, pretrain=True):
+    vit = "visual.proj" in state_dict
+
+    if vit:
+        vision_width = state_dict["visual.conv1.weight"].shape[0]
+        vision_layers = len([k for k in state_dict.keys() if k.startswith("visual.") and k.endswith(".attn.in_proj_weight")])
+        vision_patch_size = state_dict["visual.conv1.weight"].shape[-1]
+        grid_size = round((state_dict["visual.positional_embedding"].shape[0] - 1) ** 0.5)
+        image_resolution = vision_patch_size * grid_size
+    else:
+        counts: list = [len(set(k.split(".")[2] for k in state_dict if k.startswith(f"visual.layer{b}"))) for b in [1, 2, 3, 4]]
+        vision_layers = tuple(counts)
+        
+        vision_width = state_dict["visual.layer1.0.conv1.weight"].shape[0]
+        output_width = round((state_dict["visual.attnpool.positional_embedding"].shape[0] - 1) ** 0.5)
+        vision_patch_size = None
+        assert output_width ** 2 + 1 == state_dict["visual.attnpool.positional_embedding"].shape[0]
+        image_resolution = output_width * 32
+
+    embed_dim = state_dict["text_projection"].shape[1]
+    context_length = state_dict["positional_embedding"].shape[0]
+    vocab_size = state_dict["token_embedding.weight"].shape[0]
+    transformer_width = state_dict["ln_final.weight"].shape[0]
+    transformer_heads = transformer_width // 64
+    transformer_layers = len(set(k.split(".")[2] for k in state_dict if k.startswith(f"transformer.resblocks")))
+    
+    model = SandevistanCLIP(
+        embed_dim,
+        image_resolution, vision_layers, vision_width, vision_patch_size,
+        context_length, vocab_size, transformer_width, transformer_heads, transformer_layers, T=T
+    )
+
+    for key in ["input_resolution", "context_length", "vocab_size"]:
+        if key in state_dict:
+            del state_dict[key]
+
+    convert_weights(model)
+    if pretrain:
+        print('loading clip pretrained model!')
+        motion = {}
+        for k,v in state_dict.items():
+            if 'visual.' in k:
+                if k == 'visual.conv1.weight':
+                    continue
+                k_ = k.replace('visual.','motion.')
+                motion[k_] = v
+        state_dict.update(motion)
+        model.load_state_dict(state_dict,strict=False)
+    else:
+        print('not using full clip pretrained model, only visual!')
+        
+        for k in list(state_dict.keys()):
+            if not k.find("visual")>-1: 
+                state_dict.pop(k)
+
+        model.load_state_dict(state_dict,strict=False)
+    return model.eval()
