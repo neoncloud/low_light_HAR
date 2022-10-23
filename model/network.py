@@ -1,7 +1,7 @@
 from typing import Tuple, Union
 import torch
 import torch.nn as nn
-from clip.model import CLIP, ResidualAttentionBlock, VisionTransformer, LayerNorm, Transformer, convert_weights
+from clip.model import CLIP, ResidualAttentionBlock, VisionTransformer, convert_weights
 from util.frame_diff import Sandevistan
 from einops import rearrange
 from model.motion_prompt import MotionPrompt
@@ -13,23 +13,21 @@ class Transformer_(nn.Module):
         self.layers = layers
         self.resblocks = nn.ModuleList([ResidualAttentionBlock(width, heads, attn_mask) for _ in range(layers)])
 
-    def forward(self, x: torch.Tensor, return_all_feat: bool=False):
-        if return_all_feat:
-            all_feat = []
-            for blk in self.resblocks:
-                x = blk(x)
-                all_feat.append(x)
-                #x = x['out']
-            return all_feat
-        else:
-            for blk in self.resblocks:
-                x = blk(x)
-            return x
+    def forward(self, x: torch.Tensor, num_feats: int=0):
+        all_feats = []
+        for i, blk in enumerate(self.resblocks):
+            x = blk(x)
+            if i < num_feats:
+                all_feats.append(x)
+            #x = x['out']
+        return all_feats, x
+
 
 class VisionTransformer_(VisionTransformer):
-    def __init__(self, input_resolution: int, patch_size: int, width: int, layers: int, heads: int, output_dim: int):
+    def __init__(self, input_resolution: int, patch_size: int, width: int, layers: int, heads: int, output_dim: int, num_feats:int):
         super().__init__(input_resolution, patch_size, width, layers, heads, output_dim)
         self.transformer = Transformer_(width, layers, heads)
+        self.num_feats = num_feats
 
     def forward(self, x: torch.Tensor):
         x = self.conv1(x)  # shape = [*, width, grid, grid]
@@ -41,8 +39,7 @@ class VisionTransformer_(VisionTransformer):
 
         x = x.permute(1, 0, 2)  # NLD -> LND
         ######
-        all_feat = self.transformer(x, True)
-        x = all_feat[-1]
+        all_feats, x = self.transformer(x, self.num_feats)
         ######
         x = x.permute(1, 0, 2)  # LND -> NLD
 
@@ -51,10 +48,10 @@ class VisionTransformer_(VisionTransformer):
         if self.proj is not None:
             x = x @ self.proj
 
-        return x, all_feat
+        return x, all_feats
 
 class SandevistanCLIP(CLIP):
-    def __init__(self, embed_dim: int, image_resolution: int, vision_layers: Union[Tuple[int, int, int, int], int], vision_width: int, vision_patch_size: int, context_length: int, vocab_size: int, transformer_width: int, transformer_heads: int, transformer_layers: int, T: int=8, thres: float=4.0):
+    def __init__(self, embed_dim: int, image_resolution: int, vision_layers: Union[Tuple[int, int, int, int], int], motion_layers: Union[Tuple[int, int, int, int], int], vision_width: int, vision_patch_size: int, context_length: int, vocab_size: int, transformer_width: int, transformer_heads: int, transformer_layers: int, T: int=8, thres: float=4.0):
         super().__init__(embed_dim, image_resolution, vision_layers, vision_width, vision_patch_size, context_length, vocab_size, transformer_width, transformer_heads, transformer_layers)
         
         vision_heads = vision_width // 64
@@ -64,14 +61,15 @@ class SandevistanCLIP(CLIP):
             width=vision_width,
             layers=vision_layers,
             heads=vision_heads,
-            output_dim=embed_dim
+            output_dim=embed_dim,
+            num_feats=motion_layers
         )
 
         self.motion = MotionPrompt(
             input_resolution=image_resolution,
             patch_size=vision_patch_size,
             width=vision_width,
-            layers=vision_layers,
+            layers=motion_layers,
             heads=vision_heads,
             output_dim=embed_dim
         )
@@ -98,15 +96,29 @@ class SandevistanCLIP(CLIP):
         video_features = (class_features+motion_features)/2
         return video_features
 
-def build_model(state_dict: dict, T=8, pretrain=True):
+def build_model(state_dict: dict, T=8, pretrain=True, motion_layers=None):
     vit = "visual.proj" in state_dict
 
     if vit:
         vision_width = state_dict["visual.conv1.weight"].shape[0]
         vision_layers = len([k for k in state_dict.keys() if k.startswith("visual.") and k.endswith(".attn.in_proj_weight")])
+        print('img transformer layers:',vision_layers)
         vision_patch_size = state_dict["visual.conv1.weight"].shape[-1]
         grid_size = round((state_dict["visual.positional_embedding"].shape[0] - 1) ** 0.5)
         image_resolution = vision_patch_size * grid_size
+        
+        if motion_layers == None:
+            motion_layers = vision_layers
+        
+        if "motion.proj" not in state_dict:
+            motion = {}
+            for k,v in state_dict.items():
+                if 'visual.' in k:
+                    if k == 'visual.conv1.weight':
+                        continue
+                    k_ = k.replace('visual.','motion.')
+                    motion[k_] = v
+            state_dict.update(motion)
     else:
         counts: list = [len(set(k.split(".")[2] for k in state_dict if k.startswith(f"visual.layer{b}"))) for b in [1, 2, 3, 4]]
         vision_layers = tuple(counts)
@@ -126,7 +138,7 @@ def build_model(state_dict: dict, T=8, pretrain=True):
     
     model = SandevistanCLIP(
         embed_dim,
-        image_resolution, vision_layers, vision_width, vision_patch_size,
+        image_resolution, vision_layers, motion_layers, vision_width, vision_patch_size,
         context_length, vocab_size, transformer_width, transformer_heads, transformer_layers, T=T
     )
 
@@ -137,14 +149,6 @@ def build_model(state_dict: dict, T=8, pretrain=True):
     convert_weights(model)
     if pretrain:
         print('loading clip pretrained model!')
-        motion = {}
-        for k,v in state_dict.items():
-            if 'visual.' in k:
-                if k == 'visual.conv1.weight':
-                    continue
-                k_ = k.replace('visual.','motion.')
-                motion[k_] = v
-        state_dict.update(motion)
         model.load_state_dict(state_dict,strict=False)
     else:
         print('not using full clip pretrained model, only visual!')

@@ -13,6 +13,7 @@ class Sandevistan(torch.nn.Module):
             self.n_frames = None
             self.n_trunks = n_trunks
         self.thres = thres
+
     def forward(self, x:torch.Tensor):
         # B T C H W
         if self.n_trunks is None:
@@ -31,4 +32,4 @@ class Sandevistan(torch.nn.Module):
         x = reduce(x, 'b n t c h w -> b n c h w', 'sum')
         x = reduce(x, 'b n c h w -> b n 1 h w', 'mean')
         x = relu(x-self.thres)
-        return x,y
+        return x, y

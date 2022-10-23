@@ -40,4 +40,4 @@ class DarkEnhance(torch.nn.Module):
         transmission = self.estimate_transmission(HazeImg_, A)
         dehaze_image = self.dehaze(HazeImg_, A, transmission)
         dehaze_image = 1-dehaze_image / torch.amax(dehaze_image,(1,2,3),True)
-        return dehaze_image
+        return (dehaze_image*255).to(dtype=torch.uint8)
