@@ -1,10 +1,11 @@
-from typing import Tuple, Union
+from typing import Optional, Tuple, Union
 import torch
 import torch.nn as nn
 from clip.model import CLIP, ResidualAttentionBlock, VisionTransformer, convert_weights
 from util.frame_diff import Sandevistan
 from einops import rearrange
 from model.motion_prompt import MotionPrompt
+import warnings
 
 class Transformer_(nn.Module):
     def __init__(self, width: int, layers: int, heads: int, attn_mask: torch.Tensor = None):
@@ -88,15 +89,31 @@ class SandevistanCLIP(CLIP):
             motion_feat = rearrange(motion_feat, 'b t c h w -> (b t) c h w')
             frames = rearrange(frames, 'b t c h w -> (b t) c h w')
         class_features, frame_features = self.visual(frames.type(self.dtype))
-        motion_features = self.encode_motion(motion_feat,frame_features)
-        del frame_features
+        motion_features = self.encode_motion(motion_feat.type(self.dtype),frame_features)
+        #del frame_features
         class_features = class_features.view(b, -1, *class_features.shape[1:]).mean(1)
         motion_features = motion_features.view(b, -1, *motion_features.shape[1:]).mean(1)
 
         video_features = (class_features+motion_features)/2
         return video_features
 
-def build_model(state_dict: dict, T=8, pretrain=True, motion_layers=None):
+    def forward(self, image, text):
+        with torch.no_grad():
+            text_features = self.encode_text(text)
+            text_features = text_features / text_features.norm(dim=1, keepdim=True)
+        
+        image_features = self.encode_image(image)
+        image_features = image_features / image_features.norm(dim=1, keepdim=True)
+
+        # cosine similarity as logits
+        logit_scale = self.logit_scale.exp()
+        logits_per_image = logit_scale * image_features @ text_features.t()
+        logits_per_text = logits_per_image.t()
+
+        # shape = [global_batch_size, global_batch_size]
+        return logits_per_image, logits_per_text
+
+def build_model(state_dict: dict, T: int=8, pretrain: bool=True, motion_layers: Optional[int]=None, motion_layers_init: bool=True, train_visual: bool=False):
     vit = "visual.proj" in state_dict
 
     if vit:
@@ -110,7 +127,7 @@ def build_model(state_dict: dict, T=8, pretrain=True, motion_layers=None):
         if motion_layers == None:
             motion_layers = vision_layers
         
-        if "motion.proj" not in state_dict:
+        if motion_layers_init:
             motion = {}
             for k,v in state_dict.items():
                 if 'visual.' in k:
@@ -158,4 +175,8 @@ def build_model(state_dict: dict, T=8, pretrain=True, motion_layers=None):
                 state_dict.pop(k)
 
         model.load_state_dict(state_dict,strict=False)
+    
+    if not train_visual:
+        for param in model.visual.parameters():
+            param.requires_grad = False
     return model.eval()

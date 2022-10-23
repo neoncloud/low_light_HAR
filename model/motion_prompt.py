@@ -43,7 +43,6 @@ class MotionPrompt(VisionTransformer):
         x = self.ln_pre(x)
 
         x = x.permute(1, 0, 2)  # NLD -> LND
-        print(x.shape)
         x = self.transformer(x,y)
         x = x.permute(1, 0, 2)  # LND -> NLD
 

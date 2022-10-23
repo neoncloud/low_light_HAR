@@ -431,6 +431,6 @@ def build_model(state_dict: dict):
         if key in state_dict:
             del state_dict[key]
 
-    convert_weights(model)
+    convert_weights(model, type='fp32')
     model.load_state_dict(state_dict)
     return model.eval()
