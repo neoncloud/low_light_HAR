@@ -97,10 +97,10 @@ class SandevistanCLIP(CLIP):
         video_features = (class_features+motion_features)/2
         return video_features
 
-    def forward(self, image, text):
-        with torch.no_grad():
+    def forward(self, image:torch.Tensor, text: Optional[torch.Tensor]=None, text_features: Optional[torch.Tensor]=None):
+        if text_features is None:
             text_features = self.encode_text(text)
-            text_features = text_features / text_features.norm(dim=1, keepdim=True)
+        text_features = text_features / text_features.norm(dim=1, keepdim=True)
         
         image_features = self.encode_image(image)
         image_features = image_features / image_features.norm(dim=1, keepdim=True)

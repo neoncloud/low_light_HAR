@@ -15,10 +15,10 @@ class KLLoss(nn.Module):
         clip:  Clip the loss if it is above this value.
     """
 
-    def __init__(self, error_metric=nn.KLDivLoss(size_average=True, reduce=True)):
+    def __init__(self):
         super().__init__()
         print('=========using KL Loss=and has temperature and * bz==========')
-        self.error_metric = error_metric
+        self.error_metric = nn.KLDivLoss(size_average=True, reduce=True)
 
     def forward(self, prediction, label):
         batch_size = prediction.shape[0]

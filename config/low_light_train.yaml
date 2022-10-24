@@ -22,8 +22,10 @@ network:
     init: True
   visual:
     train: False
+  text:
+    train: False
 optim:
-  amp: False
+  amp: True
   type: cosine
   epochs: 50
   start_epoch: 0
