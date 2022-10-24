@@ -16,7 +16,9 @@ from contextlib import nullcontext
 from einops import rearrange
 import time
 from tqdm import tqdm, trange
+from torch.utils.tensorboard import SummaryWriter
 
+local_rank = int(os.environ["LOCAL_RANK"])
 
 def load_model():
     if cfg.resume is not None:
@@ -65,7 +67,7 @@ def train():
     else:
         scaler = None
         amp_ctx = nullcontext()
-
+    best_prec1 = 0.0
     for epoch in trange(start_epoch, cfg.optim.epochs):
         model.train()
         for data in tqdm(train_dataloader):
@@ -96,21 +98,22 @@ def train():
                     loss.backward()
                     optimizer.step()
 
-        if epoch % cfg.logging.eval_freq == 0:
-            prec1 = eval(epoch)
+        if local_rank == 0:
+            if epoch % cfg.logging.eval_freq == 0:
+                prec1 = eval(epoch)
+                is_best = prec1 > best_prec1
+                best_prec1 = max(prec1, best_prec1)
+                print('Testing: {}/{}'.format(prec1, best_prec1))
+                if is_best:
+                    print('Saving:')
+                    best_saving(working_dir, epoch, model, optimizer)
+            if epoch % cfg.logging.save_freq == 0:
+                print('Saving:')
+                filename = "{}/last_model.pt".format(working_dir)
+                epoch_saving(epoch, model, optimizer, filename)
 
-        is_best = prec1 > best_prec1
-        best_prec1 = max(prec1, best_prec1)
-        print('Testing: {}/{}'.format(prec1, best_prec1))
-        if is_best:
-            print('Saving:')
-            best_saving(working_dir, epoch, model, optimizer)
-
-        if epoch % cfg.logging.save_freq == 0:
-            print('Saving:')
-            filename = "{}/last_model.pt".format(working_dir)
-            epoch_saving(epoch, model, optimizer, filename)
-
+            if epoch % cfg.logging.write_freq == 0:
+                writer.add_scalar('loss', loss, epoch*len(train_dataloader))
 
 @torch.no_grad()
 def eval(curr_epoch):
@@ -123,7 +126,7 @@ def eval(curr_epoch):
     num = 0
     corr_1 = 0
     corr_5 = 0
-    for data in validate_dataloader:
+    for data in tqdm(validate_dataloader):
         b, t, c, h, w = data['frames'].size()
         label = data['label'].cuda().unsqueeze(-1)
         logits_per_image, _ = model(
@@ -142,7 +145,9 @@ def eval(curr_epoch):
     top_5 = corr_5.float() / num * 100
     print('Epoch: [{}/{}]: Top1: {}, Top5: {}'.format(curr_epoch,
           cfg.optim.epochs, top_1, top_5))
-    return top_1.cpu()
+    writer.add_scalar('Top 1', top_1, curr_epoch*len(train_dataloader))
+    writer.add_scalar('Top 5', top_5, curr_epoch*len(train_dataloader))
+    return top_1
 
 
 if __name__ == '__main__':
@@ -156,13 +161,19 @@ if __name__ == '__main__':
     with open(args.config, 'r') as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
     cfg = DotMap(cfg)
+    torch.manual_seed(cfg.seed)
+    torch.backends.cudnn.benchmark = True
 
     working_dir = os.path.join(cfg.logging.chpt_dir, cfg.network.arch,
                                cfg.data.dataset, time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime()))
+    writer = SummaryWriter(working_dir)
 
     start_epoch, model, optimizer, train_dataloader, validate_dataloader, num_text_aug, text_tokenized, all_text_features = load_model()
 
     if args.train:
+        if cfg.optim.distributed:
+            torch.distributed.init_process_group(backend='nccl')
+            torch.cuda.set_device(local_rank)
         train()
     elif args.eval:
         eval(0)

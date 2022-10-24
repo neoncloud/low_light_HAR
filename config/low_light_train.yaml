@@ -3,9 +3,9 @@ pretrain: /mnt/e/vit-b-16-8f.pt
 seed: 114514
 data:
   dataset: low_light
-  num_segments: 32
+  num_segments: 24
   seg_length: 8
-  batch_size: 4
+  batch_size: 12
   worker: 8
   num_classes: 10
   image_tmpl: '{:06d}.jpg'
@@ -25,6 +25,7 @@ network:
   text:
     train: False
 optim:
+  distributed: False
   amp: True
   type: cosine
   epochs: 50
@@ -39,7 +40,7 @@ optim:
   lr_decay_factor: 0.1
   clip_gradient: 20
 logging:
-  print_freq: 5
-  eval_freq: 10
+  write_freq: 5
+  eval_freq: 1
   save_freq: 20
   chpt_dir: ./checkpoints

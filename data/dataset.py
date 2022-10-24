@@ -51,7 +51,8 @@ class VideoDataset(Dataset):
     def read_frames(self, path: str, n_frames: int):
         step = n_frames//self.n_frames
         n_frames = step*self.n_frames
-        return [self.transform(Image.open(os.path.join(path, self.image_tmpl.format(idx))))for idx in range(1, n_frames+1, step)]
+        start = torch.randint(1,step+1,(1,)).item()
+        return [self.transform(Image.open(os.path.join(path, self.image_tmpl.format(idx))))for idx in range(start, n_frames+1, step)]
 
     def one_hot(self, x, on_value=1., off_value=0., device='cpu'):
         x = x.long().view(-1, 1)
