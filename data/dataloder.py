@@ -4,14 +4,26 @@ from dotmap import DotMap
 
 
 def get_dataloder(cfg: DotMap):
-    train_dataset = VideoDataset(
-        n_classes=cfg.data.num_classes,
-        n_frames=cfg.data.num_segments,
-        frame_size=cfg.data.input_size,
-        video_list_path=cfg.data.train_list,
-        video_label_path=cfg.data.label_list,
-        image_tmpl=cfg.data.image_tmpl
-    )
+    if cfg.data.train_list is not None:
+        train_dataset = VideoDataset(
+            n_classes=cfg.data.num_classes,
+            n_frames=cfg.data.num_segments,
+            frame_size=cfg.data.input_size,
+            video_list_path=cfg.data.train_list,
+            video_label_path=cfg.data.label_list,
+            image_tmpl=cfg.data.image_tmpl
+        )
+
+        train_dataloader = DataLoader(
+            dataset = train_dataset,
+            shuffle = True,
+            batch_size = cfg.data.batch_size,
+            num_workers = cfg.data.worker,
+            pin_memory = True
+        )
+    else:
+        train_dataset = None
+        train_dataloader = None
 
     validate_dataset = VideoDataset(
         n_classes=cfg.data.num_classes,
@@ -22,14 +34,6 @@ def get_dataloder(cfg: DotMap):
         image_tmpl=cfg.data.image_tmpl
     )
 
-    train_dataloader = DataLoader(
-        dataset = train_dataset,
-        shuffle = True,
-        batch_size = cfg.data.batch_size,
-        num_workers = cfg.data.worker,
-        pin_memory = True
-    )
-
     validate_dataloader = DataLoader(
         dataset = validate_dataset,
         shuffle = True,
@@ -38,4 +42,4 @@ def get_dataloder(cfg: DotMap):
         pin_memory = True
     )
 
-    return train_dataloader, validate_dataloader, train_dataset.name_list
+    return train_dataloader, validate_dataloader, validate_dataset.name_list

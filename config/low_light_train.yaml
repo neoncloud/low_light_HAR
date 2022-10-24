@@ -39,6 +39,7 @@ optim:
   lr_decay_factor: 0.1
   clip_gradient: 20
 logging:
-  print_freq: 10
-  eval_freq: 1
+  print_freq: 5
+  eval_freq: 10
+  save_freq: 20
   chpt_dir: ./checkpoints
