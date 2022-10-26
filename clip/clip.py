@@ -7,7 +7,7 @@ from pkg_resources import packaging
 
 import torch
 from PIL import Image
-from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize
+from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize, RandomGrayscale, RandomVerticalFlip
 from tqdm import tqdm
 
 from .model import build_model
@@ -76,10 +76,12 @@ def _convert_image_to_rgb(image):
     return image.convert("RGB")
 
 
-def _transform(n_px):
+def _transform(n_px, s=False):
     return Compose([
         Resize(n_px, interpolation=BICUBIC),
         CenterCrop(n_px),
+        #RandomVerticalFlip(1.0 if s else 0.0),
+        #RandomGrayscale(1.0 if s else 0.0),
         _convert_image_to_rgb,
         ToTensor(),
         Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),

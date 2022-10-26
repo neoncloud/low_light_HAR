@@ -30,7 +30,7 @@ class MotionPrompt(VisionTransformer):
     def __init__(self, input_resolution: int, patch_size: int, width: int, layers: int, heads: int, output_dim: int):
         super().__init__(input_resolution, patch_size, width, layers, heads, output_dim)
         # patching layer for Sandevistan motion features
-        self.conv1 = nn.Conv2d(in_channels=4, out_channels=width, kernel_size=patch_size, stride=patch_size, bias=False)
+        self.conv1 = nn.Conv2d(in_channels=1, out_channels=width, kernel_size=patch_size, stride=patch_size, bias=False)
         self.transformer = CrossTransformer(width, layers, heads)
 
     def forward(self, x: torch.Tensor, y: list):

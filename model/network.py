@@ -1,20 +1,23 @@
+from turtle import width
 from typing import Optional, Tuple, Union
 import torch
 import torch.nn as nn
 from clip.model import CLIP, ResidualAttentionBlock, VisionTransformer, convert_weights
 from util.frame_diff import Sandevistan
 from einops import rearrange
-from model.motion_prompt import MotionPrompt
+from model.motion_prompt import MotionPrompt, ResidualCrossAttentionBlock
 import warnings
+
 
 class Transformer_(nn.Module):
     def __init__(self, width: int, layers: int, heads: int, attn_mask: torch.Tensor = None):
         super().__init__()
         self.width = width
         self.layers = layers
-        self.resblocks = nn.ModuleList([ResidualAttentionBlock(width, heads, attn_mask) for _ in range(layers)])
+        self.resblocks = nn.ModuleList([ResidualAttentionBlock(
+            width, heads, attn_mask) for _ in range(layers)])
 
-    def forward(self, x: torch.Tensor, num_feats: int=0):
+    def forward(self, x: torch.Tensor, num_feats: int = 0):
         all_feats = []
         for i, blk in enumerate(self.resblocks):
             x = blk(x)
@@ -24,17 +27,34 @@ class Transformer_(nn.Module):
         return all_feats, x
 
 
+class CrossTransformer_(nn.Module):
+    def __init__(self, width: int, layers: int, heads: int, attn_mask: torch.Tensor = None):
+        super().__init__()
+        self.width = width
+        self.layers = layers
+        self.cross_resblock = ResidualCrossAttentionBlock(
+            width, heads, attn_mask)
+        self.resblocks = nn.Sequential(
+            *[ResidualAttentionBlock(width, heads, attn_mask) for _ in range(layers-1)])
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor):
+        x = self.resblocks(x)
+        return self.cross_resblock(x, y)
+
+
 class VisionTransformer_(VisionTransformer):
-    def __init__(self, input_resolution: int, patch_size: int, width: int, layers: int, heads: int, output_dim: int, num_feats:int):
+    def __init__(self, input_resolution: int, patch_size: int, width: int, layers: int, heads: int, output_dim: int, num_feats: int):
         super().__init__(input_resolution, patch_size, width, layers, heads, output_dim)
         self.transformer = Transformer_(width, layers, heads)
         self.num_feats = num_feats
 
     def forward(self, x: torch.Tensor):
         x = self.conv1(x)  # shape = [*, width, grid, grid]
-        x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
+        # shape = [*, width, grid ** 2]
+        x = x.reshape(x.shape[0], x.shape[1], -1)
         x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
-        x = torch.cat([self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device), x], dim=1)  # shape = [*, grid ** 2 + 1, width]
+        x = torch.cat([self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1],
+                      dtype=x.dtype, device=x.device), x], dim=1)  # shape = [*, grid ** 2 + 1, width]
         x = x + self.positional_embedding.to(x.dtype)
         x = self.ln_pre(x)
 
@@ -51,10 +71,11 @@ class VisionTransformer_(VisionTransformer):
 
         return x, all_feats
 
+
 class SandevistanCLIP(CLIP):
-    def __init__(self, embed_dim: int, image_resolution: int, vision_layers: Union[Tuple[int, int, int, int], int], motion_layers: Union[Tuple[int, int, int, int], int], vision_width: int, vision_patch_size: int, context_length: int, vocab_size: int, transformer_width: int, transformer_heads: int, transformer_layers: int, T: int=8, thres: float=4.0):
-        super().__init__(embed_dim, image_resolution, vision_layers, vision_width, vision_patch_size, context_length, vocab_size, transformer_width, transformer_heads, transformer_layers)
-        
+    def __init__(self, embed_dim: int, image_resolution: int, vision_layers: Union[Tuple[int, int, int, int], int], motion_layers: Union[Tuple[int, int, int, int], int], vision_width: int, vision_patch_size: int, context_length: int, vocab_size: int, transformer_width: int, transformer_heads: int, transformer_layers: int, T: int = 8, thres: float = 4.0):
+        super().__init__(embed_dim, image_resolution, vision_layers, vision_width, vision_patch_size,
+                         context_length, vocab_size, transformer_width, transformer_heads, transformer_layers)
         vision_heads = vision_width // 64
         self.visual = VisionTransformer_(
             input_resolution=image_resolution,
@@ -75,35 +96,68 @@ class SandevistanCLIP(CLIP):
             output_dim=embed_dim
         )
 
+        self.temporal = CrossTransformer_(
+            width=embed_dim,
+            layers=7,
+            heads=transformer_heads
+        )
+
+        self.frame_position_embeddings = nn.Embedding(
+            context_length, embed_dim)
         self.T = T
         self.frame_diff = Sandevistan(n_trunks=T, thres=thres)
-    
+
     def encode_motion(self, motion_feat: torch.Tensor, frame_feat: torch.Tensor):
         return self.motion(motion_feat, frame_feat)
 
-    def encode_image(self, video: torch.Tensor):
-        b,t,c,h,w = video.shape
-        with torch.no_grad():
-            motion_feat, frames = self.frame_diff(video)
-            motion_feat = torch.cat((motion_feat,frames),2)
-            motion_feat = rearrange(motion_feat, 'b t c h w -> (b t) c h w')
-            frames = rearrange(frames, 'b t c h w -> (b t) c h w')
-        class_features, frame_features = self.visual(frames.type(self.dtype))
-        motion_features = self.encode_motion(motion_feat.type(self.dtype),frame_features)
-        #del frame_features
-        class_features = class_features.view(b, -1, *class_features.shape[1:]).mean(1)
-        motion_features = motion_features.view(b, -1, *motion_features.shape[1:]).mean(1)
+    def encode_video(self, x, y):
+        b, n, c = x.size()
+        x_original = x
+        seq_length = n
+        position_ids = torch.arange(
+            seq_length, dtype=torch.long, device=x.device)
+        position_ids = position_ids.unsqueeze(0).expand(x.size(0), -1)
+        frame_position_embeddings = self.frame_position_embeddings(
+            position_ids)
+        x = x + frame_position_embeddings
 
-        video_features = (class_features+motion_features)/2
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        y = y.permute(1, 0, 2)
+        x = self.temporal(x, y)
+        x = x.permute(1, 0, 2)  # LND -> NLD
+        x = x.type(x_original.dtype) + x_original
+        return x
+
+    def encode_image(self, video: torch.Tensor):
+        b, t, c, h, w = video.shape
+        motion_feat, frames = self.frame_diff(video)
+        #motion_feat = torch.cat((motion_feat,frames),2)
+        motion_feat = rearrange(
+            motion_feat, 'b t c h w -> (b t) c h w').detach()
+        frames = rearrange(frames, 'b t c h w -> (b t) c h w').detach()
+        class_features, frame_features = self.visual(frames.type(self.dtype))
+        motion_features = self.encode_motion(
+            motion_feat.type(self.dtype), frame_features)
+
+        #del frame_features
+        class_features = class_features.view(b, -1, class_features.shape[-1])
+        motion_features = motion_features.view(
+            b, -1, motion_features.shape[-1])
+        video_features = self.encode_video(
+            class_features, motion_features).mean(1)
+        #video_features = ((class_features+motion_features)/2).mean(1)
+
         return video_features
 
-    def forward(self, image:torch.Tensor, text: Optional[torch.Tensor]=None, text_features: Optional[torch.Tensor]=None):
+    def forward(self, image: torch.Tensor, text: Optional[torch.Tensor] = None, text_features: Optional[torch.Tensor] = None):
         if text_features is None:
             text_features = self.encode_text(text)
-        text_features = text_features / text_features.norm(dim=1, keepdim=True)
-        
+        text_features = text_features / \
+            text_features.norm(dim=-1, keepdim=True)
+
         image_features = self.encode_image(image)
-        image_features = image_features / image_features.norm(dim=1, keepdim=True)
+        image_features = image_features / \
+            image_features.norm(dim=-1, keepdim=True)
 
         # cosine similarity as logits
         logit_scale = self.logit_scale.exp()
@@ -113,37 +167,57 @@ class SandevistanCLIP(CLIP):
         # shape = [global_batch_size, global_batch_size]
         return logits_per_image, logits_per_text
 
-def build_model(state_dict: dict, T: int=8, pretrain: bool=True, motion_layers: Optional[int]=None, motion_layers_init: bool=True, train_visual: bool=False):
+    def inference(self, image: torch.Tensor, text: Optional[torch.Tensor] = None, text_features: Optional[torch.Tensor] = None):
+        if text_features is None:
+            text_features = self.encode_text(text)
+        text_features = text_features / \
+            text_features.norm(dim=-1, keepdim=True)
+
+        image_features = self.encode_image(image)
+        image_features = image_features / \
+            image_features.norm(dim=-1, keepdim=True)
+
+        text_probs = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+        # shape = [global_batch_size, global_batch_size]
+        return text_probs
+
+
+def build_model(state_dict: dict, T: int = 8, pretrain: bool = True, motion_layers: Optional[int] = None, motion_layers_init: bool = True, train_visual: bool = False, train_text: bool = False):
     vit = "visual.proj" in state_dict
 
     if vit:
         vision_width = state_dict["visual.conv1.weight"].shape[0]
-        vision_layers = len([k for k in state_dict.keys() if k.startswith("visual.") and k.endswith(".attn.in_proj_weight")])
-        print('img transformer layers:',vision_layers)
+        vision_layers = len([k for k in state_dict.keys() if k.startswith(
+            "visual.") and k.endswith(".attn.in_proj_weight")])
+        print('img transformer layers:', vision_layers)
         vision_patch_size = state_dict["visual.conv1.weight"].shape[-1]
-        grid_size = round((state_dict["visual.positional_embedding"].shape[0] - 1) ** 0.5)
+        grid_size = round(
+            (state_dict["visual.positional_embedding"].shape[0] - 1) ** 0.5)
         image_resolution = vision_patch_size * grid_size
-        
+
         if motion_layers == None:
             motion_layers = vision_layers
-        
+
         if motion_layers_init:
             motion = {}
-            for k,v in state_dict.items():
+            for k, v in state_dict.items():
                 if 'visual.' in k:
                     if k == 'visual.conv1.weight':
                         continue
-                    k_ = k.replace('visual.','motion.')
+                    k_ = k.replace('visual.', 'motion.')
                     motion[k_] = v
             state_dict.update(motion)
     else:
-        counts: list = [len(set(k.split(".")[2] for k in state_dict if k.startswith(f"visual.layer{b}"))) for b in [1, 2, 3, 4]]
+        counts: list = [len(set(k.split(".")[2] for k in state_dict if k.startswith(
+            f"visual.layer{b}"))) for b in [1, 2, 3, 4]]
         vision_layers = tuple(counts)
-        
+
         vision_width = state_dict["visual.layer1.0.conv1.weight"].shape[0]
-        output_width = round((state_dict["visual.attnpool.positional_embedding"].shape[0] - 1) ** 0.5)
+        output_width = round(
+            (state_dict["visual.attnpool.positional_embedding"].shape[0] - 1) ** 0.5)
         vision_patch_size = None
-        assert output_width ** 2 + 1 == state_dict["visual.attnpool.positional_embedding"].shape[0]
+        assert output_width ** 2 + \
+            1 == state_dict["visual.attnpool.positional_embedding"].shape[0]
         image_resolution = output_width * 32
 
     embed_dim = state_dict["text_projection"].shape[1]
@@ -151,8 +225,9 @@ def build_model(state_dict: dict, T: int=8, pretrain: bool=True, motion_layers: 
     vocab_size = state_dict["token_embedding.weight"].shape[0]
     transformer_width = state_dict["ln_final.weight"].shape[0]
     transformer_heads = transformer_width // 64
-    transformer_layers = len(set(k.split(".")[2] for k in state_dict if k.startswith(f"transformer.resblocks")))
-    
+    transformer_layers = len(set(
+        k.split(".")[2] for k in state_dict if k.startswith(f"transformer.resblocks")))
+
     model = SandevistanCLIP(
         embed_dim,
         image_resolution, vision_layers, motion_layers, vision_width, vision_patch_size,
@@ -163,20 +238,38 @@ def build_model(state_dict: dict, T: int=8, pretrain: bool=True, motion_layers: 
         if key in state_dict:
             del state_dict[key]
 
-    convert_weights(model)
+    # convert_weights(model)
     if pretrain:
         print('loading clip pretrained model!')
-        model.load_state_dict(state_dict,strict=False)
+        not_loaded = model.load_state_dict(state_dict, strict=False)
+        print('The following sub-module is not loaded')
+        print(not_loaded)
     else:
         print('not using full clip pretrained model, only visual!')
-        
+
         for k in list(state_dict.keys()):
-            if not k.find("visual")>-1: 
+            if not k.find("visual") > -1:
                 state_dict.pop(k)
 
-        model.load_state_dict(state_dict,strict=False)
-    
+        model.load_state_dict(state_dict, strict=False)
+
     if not train_visual:
         for param in model.visual.parameters():
             param.requires_grad = False
-    return model.eval()
+    if not train_text:
+        for param in model.transformer.parameters():
+            param.requires_grad = False
+        for param in model.token_embedding.parameters():
+            param.requires_grad = False
+        for param in model.ln_final.parameters():
+            param.requires_grad = False
+        model.text_projection.requires_grad = False
+        model.positional_embedding.requires_grad = False
+    return model.eval().float()
+
+
+def convert_models_to_fp32(model):
+    for p in model.parameters():
+        p.data = p.data.float()
+        if p.grad is not None:
+            p.grad.data = p.grad.data.float()

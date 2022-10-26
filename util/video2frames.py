@@ -1,6 +1,6 @@
 import cv2, os, sys
 from torchvision.io import read_video
-from .dark_enhance import DarkEnhance
+from dark_enhance import DarkEnhance
 
 enhancer = DarkEnhance().cuda()
 def dump_frames(vid_path, out_path):
@@ -17,7 +17,7 @@ def dump_frames(vid_path, out_path):
         pass
     file_list = []
     for i in range(1,fcount+1):
-        cv2.imwrite('{}/{:06d}.jpg'.format(out_full_path, i), frames[i-1,...].cpu().numpy()[...,::-1])
+        cv2.imwrite('{}/{:06d}.jpg'.format(out_full_path, i), frames[i-1,...].cpu().numpy()[...,::-1], [cv2.IMWRITE_JPEG_QUALITY, 75])
         access_path = '{}/{:06d}.jpg'.format(vid_name, i)
         file_list.append(access_path)
     print('{} done'.format(vid_name))
@@ -25,7 +25,7 @@ def dump_frames(vid_path, out_path):
     return fcount,out_full_path
 
 if __name__ == '__main__':
-    dataset_path = '.'
+    dataset_path = '/home/neoncloud/low_light_video'
     train_path = os.path.join(dataset_path,'train')
     val_path = os.path.join(dataset_path,'validate')
     train_img_path = os.path.join(dataset_path,'train_img')

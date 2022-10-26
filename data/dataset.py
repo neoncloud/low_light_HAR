@@ -1,7 +1,7 @@
 from torch.utils.data import Dataset
 import os
 import csv
-from PIL import Image, ImageOps
+from PIL import Image
 import torch
 from clip.clip import _transform
 
@@ -51,7 +51,10 @@ class VideoDataset(Dataset):
     def read_frames(self, path: str, n_frames: int):
         step = n_frames//self.n_frames
         n_frames = step*self.n_frames
-        start = torch.randint(1,step+1,(1,)).item()
+        if step>1:
+            start = torch.randint(1,step+1,(1,)).item()
+        else:
+            start = 1
         return [self.transform(Image.open(os.path.join(path, self.image_tmpl.format(idx))))for idx in range(start, n_frames+1, step)]
 
     def one_hot(self, x, on_value=1., off_value=0., device='cpu'):
@@ -59,7 +62,13 @@ class VideoDataset(Dataset):
         return torch.full((x.size()[0], self.n_classes), off_value, device=device).scatter_(1, x, on_value)
 
     def __getitem__(self, idx):
-        path, n_frames, label = self.video_files[idx]
+        while True:
+            path, n_frames, label = self.video_files[idx]
+            if n_frames<self.n_frames:
+                idx += 1
+                continue
+            else:
+                break
         frames = self.read_frames(path, n_frames)
         frames = torch.stack(frames, dim=0)
         label = torch.tensor(label,dtype=torch.long)
