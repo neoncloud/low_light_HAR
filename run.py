@@ -74,7 +74,6 @@ def train():
         for i, data in enumerate(tqdm(train_dataloader)):
             if (i+1) == 1 or (i+1) % 10 == 0:
                 lr_scheduler.step(epoch + i / len(train_dataloader))
-            optimizer.zero_grad()
             text_id = torch.randint(
                 high=num_text_aug, size=(data['label'].shape[0],))
             if cfg.network.text.train:
@@ -82,26 +81,27 @@ def train():
             else:
                 text_features = all_text_features[data['label'], text_id, :]
             with amp_ctx:
-                for step in range(cfg.optim.grad_accu):
-                    if cfg.network.text.train:
-                        logits_per_image, _ = model(
-                            data['frames'].cuda(), text=text_token.cuda())
-                    else:
-                        logits_per_image, _ = model(
-                            data['frames'].cuda(), text_features=text_features)
-                    label = data['label'].unsqueeze(-1)
-                    ground_truth = torch.eq(label, label.T).to(torch.float16)
-                    loss = criterion(logits_per_image, ground_truth.cuda())
-                    if cfg.optim.amp:
-                        scaler.scale(loss).backward()
-                    else:
-                        loss.backward()
-
-                if cfg.optim.amp:
-                    scaler.step(optimizer)
-                    scaler.update()
+                if cfg.network.text.train:
+                    logits_per_image, _ = model(
+                        data['frames'].cuda(), text=text_token.cuda())
                 else:
-                    optimizer.step()
+                    logits_per_image, _ = model(
+                        data['frames'].cuda(), text_features=text_features)
+                label = data['label'].unsqueeze(-1)
+                ground_truth = torch.eq(label, label.T).to(torch.float16)
+                loss = criterion(logits_per_image, ground_truth.cuda())
+                if cfg.optim.amp:
+                    scaler.scale(loss).backward()
+                else:
+                    loss.backward()
+
+                if (i+1) % cfg.optim.grad_accu == 0:
+                    if cfg.optim.amp:
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        optimizer.step()
+                    optimizer.zero_grad()
 
             if local_rank == 0:
                 total_steps = i*cfg.data.batch_size+epoch*len(train_dataloader)
