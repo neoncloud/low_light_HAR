@@ -1,4 +1,3 @@
-from turtle import width
 from typing import Optional, Tuple, Union
 import torch
 import torch.nn as nn
@@ -96,37 +95,38 @@ class SandevistanCLIP(CLIP):
             output_dim=embed_dim
         )
 
-        self.temporal = CrossTransformer_(
-            width=embed_dim,
-            layers=7,
-            heads=transformer_heads
-        )
+        # self.temporal = CrossTransformer_(
+        #     width=embed_dim,
+        #     layers=7,
+        #     heads=transformer_heads
+        # )
 
-        self.frame_position_embeddings = nn.Embedding(
-            context_length, embed_dim)
+        # self.frame_position_embeddings = nn.Embedding(
+        #     context_length, embed_dim)
         self.T = T
         self.frame_diff = Sandevistan(n_trunks=T, thres=thres)
+        self.alpha = nn.parameter.Parameter(torch.tensor([0.1]))
 
     def encode_motion(self, motion_feat: torch.Tensor, frame_feat: torch.Tensor):
         return self.motion(motion_feat, frame_feat)
 
-    def encode_video(self, x, y):
-        b, n, c = x.size()
-        x_original = x
-        seq_length = n
-        position_ids = torch.arange(
-            seq_length, dtype=torch.long, device=x.device)
-        position_ids = position_ids.unsqueeze(0).expand(x.size(0), -1)
-        frame_position_embeddings = self.frame_position_embeddings(
-            position_ids)
-        x = x + frame_position_embeddings
+    # def encode_video(self, x, y):
+    #     b, n, c = x.size()
+    #     x_original = x
+    #     seq_length = n
+    #     position_ids = torch.arange(
+    #         seq_length, dtype=torch.long, device=x.device)
+    #     position_ids = position_ids.unsqueeze(0).expand(x.size(0), -1)
+    #     frame_position_embeddings = self.frame_position_embeddings(
+    #         position_ids)
+    #     x = x + frame_position_embeddings
 
-        x = x.permute(1, 0, 2)  # NLD -> LND
-        y = y.permute(1, 0, 2)
-        x = self.temporal(x, y)
-        x = x.permute(1, 0, 2)  # LND -> NLD
-        x = x.type(x_original.dtype) + x_original
-        return x
+    #     x = x.permute(1, 0, 2)  # NLD -> LND
+    #     y = y.permute(1, 0, 2)
+    #     x = self.temporal(x, y)
+    #     x = x.permute(1, 0, 2)  # LND -> NLD
+    #     x = x.type(x_original.dtype) + x_original
+    #     return x
 
     def encode_image(self, video: torch.Tensor):
         b, t, c, h, w = video.shape
@@ -140,12 +140,13 @@ class SandevistanCLIP(CLIP):
             motion_feat.type(self.dtype), frame_features)
 
         #del frame_features
-        class_features = class_features.view(b, -1, class_features.shape[-1])
+        class_features = class_features.view(
+            b, -1, class_features.shape[-1])
         motion_features = motion_features.view(
             b, -1, motion_features.shape[-1])
-        video_features = self.encode_video(
-            class_features, motion_features).mean(1)
-        #video_features = ((class_features+motion_features)/2).mean(1)
+        # video_features = self.encode_video(
+        #     class_features, motion_features).mean(1)
+        video_features = (self.alpha*class_features+(1-self.alpha)*motion_features).mean(1)
 
         return video_features
 

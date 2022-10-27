@@ -46,7 +46,8 @@ def load_model():
     else:
         raise NotImplementedError
 
-    lr_scheduler = get_lr_scheduler(cfg, optimizer)
+    # lr_scheduler = get_lr_scheduler(cfg, optimizer)
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
     train_dataloader, validate_dataloader, name_list = get_dataloder(cfg)
     num_text_aug, text_tokenized = text_prompt(name_list)
     with torch.no_grad():
@@ -72,8 +73,6 @@ def train():
     best_prec1 = 0.0
     for epoch in trange(start_epoch, cfg.optim.epochs):
         for i, data in enumerate(tqdm(train_dataloader)):
-            if (i+1) == 1 or (i+1) % 10 == 0:
-                lr_scheduler.step(epoch + i / len(train_dataloader))
             text_id = torch.randint(
                 high=num_text_aug, size=(data['label'].shape[0],))
             if cfg.network.text.train:
@@ -118,6 +117,7 @@ def train():
                 is_best = prec1 > best_prec1
                 best_prec1 = max(prec1, best_prec1)
                 print('Testing: {}/{}'.format(prec1, best_prec1))
+                lr_scheduler.step(best_prec1)
                 if is_best:
                     print('Saving:')
                     best_saving(working_dir, epoch, model, optimizer)
@@ -126,7 +126,6 @@ def train():
                 print('Saving:')
                 filename = "{}/last_model.pt".format(working_dir)
                 epoch_saving(epoch, model, optimizer, filename)
-
 
 @torch.no_grad()
 def eval(curr_epoch):

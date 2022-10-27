@@ -1,11 +1,12 @@
 from torch.utils.data import DataLoader
-from .dataset import VideoDataset
+from .dataset import VideoFramesDataset, VideoDataset
 from dotmap import DotMap
 
 
 def get_dataloder(cfg: DotMap):
+    dataset = VideoDataset if cfg.data.type=='video' else VideoFramesDataset
     if cfg.data.train_list is not None:
-        train_dataset = VideoDataset(
+        train_dataset = dataset(
             n_classes=cfg.data.num_classes,
             n_frames=cfg.data.num_segments,
             frame_size=cfg.data.input_size,
@@ -25,7 +26,7 @@ def get_dataloder(cfg: DotMap):
         train_dataset = None
         train_dataloader = None
 
-    validate_dataset = VideoDataset(
+    validate_dataset = dataset(
         n_classes=cfg.data.num_classes,
         n_frames=cfg.data.num_segments,
         frame_size=cfg.data.input_size,

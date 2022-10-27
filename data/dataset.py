@@ -5,8 +5,20 @@ from PIL import Image
 import torch
 from clip.clip import _transform
 
+from torchvision.transforms import Compose, Resize, CenterCrop, Normalize
+try:
+    from torchvision.transforms import InterpolationMode
+    BICUBIC = InterpolationMode.BICUBIC
+except ImportError:
+    BICUBIC = Image.BICUBIC
+def _transform_video(n_px):
+    return Compose([
+        Resize(n_px, interpolation=BICUBIC),
+        CenterCrop(n_px),
+        Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
+    ])
 
-class VideoDataset(Dataset):
+class VideoFramesDataset(Dataset):
     def __init__(self, n_classes: int, n_frames: int, frame_size: int, video_list_path: str, video_label_path: str, image_tmpl: str = "{:06d}.jpg") -> None:
         """Video dataset
 
@@ -29,8 +41,8 @@ class VideoDataset(Dataset):
         self.name_list = []
         self.transform = _transform(frame_size)
 
-        self.read_file_list()
         self.read_labels()
+        self.read_file_list()
 
     def read_file_list(self):
         root, _ = os.path.split(self.video_list_path)
@@ -77,3 +89,50 @@ class VideoDataset(Dataset):
 
     def __len__(self):
         return len(self.video_files)
+
+from torchvision.io import read_video
+class VideoDataset(VideoFramesDataset):
+    def __init__(self, n_classes: int, n_frames: int, frame_size: int, video_list_path: str, video_label_path: str, image_tmpl: str = "{:06d}.jpg") -> None:
+        self.name_dict = {}
+        super().__init__(n_classes, n_frames, frame_size, video_list_path, video_label_path, image_tmpl)
+        self.transform = _transform_video(frame_size)
+    
+    def read_labels(self):
+        with open(self.video_label_path, newline='') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                self.name_list.append(row['name'])
+                self.name_dict[row['name']] = int(row['id'])
+    
+    def read_file_list(self):
+        root, _ = os.path.split(self.video_list_path)
+        with open(self.video_list_path, 'r') as file:
+            for line in file:
+                path, n_frames = line.split(' ')[0:2]
+                path = os.path.join(root, path)
+                name = path.split('/')[-2].replace('_',' ')
+                label = self.name_dict[name]
+                self.video_files.append((path, label))
+
+    def read_frames(self, path: str):
+        frames, _, _ = read_video(path)
+        step = frames.shape[0]//self.n_frames
+        if step == 0:
+            return None
+        n_frames = step*self.n_frames
+        if step>1:
+            start = torch.randint(0,step,(1,)).item()
+        else:
+            start = 0
+        return self.transform(frames[start:n_frames:step,...].float().transpose(3,1))
+
+    def __getitem__(self, idx):
+        while True:
+            path, label = self.video_files[idx]
+            frames = self.read_frames(path)
+            if frames is None:
+                idx += 1
+                continue
+            else:
+                label = torch.tensor(label,dtype=torch.long)
+                return {'frames': frames, 'label': label}

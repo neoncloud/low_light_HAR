@@ -28,7 +28,7 @@ class Sandevistan(torch.nn.Module):
         x = rearrange(x,'b (n t) c h w -> b n t c h w',n=n)
         # leading frames of each chunk
         y = x[:,:,0, ...]
-        x = (x[:,:,1:,...] - y[:,:,None,...]).pow(2)
+        x = (x[:,:,1:,...] - y[:,:,None,...]).abs()
         x = reduce(x, 'b n t c h w -> b n c h w', 'sum')
         x = reduce(x, 'b n c h w -> b n 1 h w', 'max')
         x = relu(x-self.thres)

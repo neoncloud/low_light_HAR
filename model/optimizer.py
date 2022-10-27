@@ -5,14 +5,15 @@ from .lr_scheduler import WarmupMultiStepLR, WarmupCosineAnnealingLR
 
 def get_optimizer(cfg: DotMap, model):
     #params = filter(lambda p: p.requires_grad, model.parameters())
-    vision_params = list(map(id, model.visual.parameters()))
-    temporal_params = list(map(id, model.temporal.parameters()))
-    other_params = filter(lambda p: id(p) not in vision_params and id(
-        p) not in temporal_params and p.requires_grad, model.parameters())
+    vision_params = list(map(id, model.visual.parameters())) + [id(model.alpha)]
+    #temporal_params = list(map(id, model.temporal.parameters()))
+    other_params = filter(lambda p: id(p) not in vision_params and p.requires_grad, model.parameters())
     params = [{'params': other_params},
-              {'params': model.visual.parameters(), 'lr': cfg.optim.lr *
-               cfg.optim.f_ratio} if cfg.network.visual.train else {},
-              {'params': model.temporal.parameters(), 'lr': cfg.optim.lr * cfg.optim.f_ratio} if cfg.network.temporal.train else {}]
+              {'params': model.alpha, 'lr': cfg.optim.lr *
+               cfg.optim.f_ratio}]
+    if cfg.network.visual.train:
+        params += [{'params': model.visual.parameters(), 'lr': cfg.optim.lr *
+               cfg.optim.f_ratio}]
     if cfg.optim.optim == 'adam':
         optimizer = torch.optim.Adam(params,
                                      lr=cfg.optim.lr,

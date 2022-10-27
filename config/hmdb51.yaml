@@ -1,17 +1,18 @@
 resume:
-pretrain: /mnt/e/vit-b-16-8f_modified.pt
+pretrain: /mnt/e/vit-b-16-8f.pt
 seed: 114514
 data:
-  dataset: hmdb
-  num_segments: 48
+  dataset: hmdb_51
+  type: video # video dataset or frames dataset
+  num_segments: 40
   seg_length: 8
   batch_size: 16
-  worker: 4
-  num_classes: 10
+  worker: 1
+  num_classes: 51
   image_tmpl: '{:06d}.jpg'
-  train_list: /home/neoncloud/hmdb51_org/train_test_.txt
-  val_list: /home/neoncloud/low_light_video/validate_.txt
-  label_list: /home/neoncloud/low_light_video/mapping_table.txt
+  train_list: /home/neoncloud/hmdb_full/train_full.txt
+  val_list: /home/neoncloud/hmdb_full/validate_full.txt
+  label_list: /home/neoncloud/hmdb_full/mapping_table.txt
   index_bias: 1
   input_size: 224
 network:
@@ -21,7 +22,7 @@ network:
     num_layers: 4
     init: False
   visual:
-    train: False
+    train: True
   temporal:
     train: False
   text:
@@ -34,8 +35,8 @@ optim:
   start_epoch: 0
   epoch_offset: 0
   optim: adamw
-  lr: 8.e-7
-  f_ratio: 0.0125
+  lr: 5.e-7
+  f_ratio: 0.02
   lr_warmup_step: 5
   momentum: 0.9
   weight_decay: 0.01
