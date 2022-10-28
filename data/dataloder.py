@@ -38,7 +38,7 @@ def get_dataloder(cfg: DotMap):
     validate_dataloader = DataLoader(
         dataset = validate_dataset,
         shuffle = True,
-        batch_size = cfg.data.batch_size,
+        batch_size = cfg.data.val_batch_size,
         num_workers = cfg.data.worker,
         pin_memory = True
     )

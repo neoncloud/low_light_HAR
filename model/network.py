@@ -72,7 +72,7 @@ class VisionTransformer_(VisionTransformer):
 
 
 class SandevistanCLIP(CLIP):
-    def __init__(self, embed_dim: int, image_resolution: int, vision_layers: Union[Tuple[int, int, int, int], int], motion_layers: Union[Tuple[int, int, int, int], int], vision_width: int, vision_patch_size: int, context_length: int, vocab_size: int, transformer_width: int, transformer_heads: int, transformer_layers: int, T: int = 8, thres: float = 4.0):
+    def __init__(self, embed_dim: int, image_resolution: int, vision_layers: Union[Tuple[int, int, int, int], int], motion_layers: Union[Tuple[int, int, int, int], int], vision_width: int, vision_patch_size: int, context_length: int, vocab_size: int, transformer_width: int, transformer_heads: int, transformer_layers: int, T: int = 8, thres: float = 4.0, alpha:float=0.3):
         super().__init__(embed_dim, image_resolution, vision_layers, vision_width, vision_patch_size,
                          context_length, vocab_size, transformer_width, transformer_heads, transformer_layers)
         vision_heads = vision_width // 64
@@ -92,7 +92,8 @@ class SandevistanCLIP(CLIP):
             width=vision_width,
             layers=motion_layers,
             heads=vision_heads,
-            output_dim=embed_dim
+            output_dim=embed_dim,
+            T=T
         )
 
         # self.temporal = CrossTransformer_(
@@ -103,11 +104,23 @@ class SandevistanCLIP(CLIP):
 
         # self.frame_position_embeddings = nn.Embedding(
         #     context_length, embed_dim)
-        self.T = T
+        #self.T = T
         self.frame_diff = Sandevistan(n_trunks=T, thres=thres)
-        self.alpha = nn.parameter.Parameter(torch.tensor([0.1]))
+        self.alpha = nn.parameter.Parameter(torch.tensor([alpha]))
 
-    def encode_motion(self, motion_feat: torch.Tensor, frame_feat: torch.Tensor):
+    def encode_motion(self, motion_feat: torch.Tensor, frame_feat: list):
+        # frame_feat_ = []
+        # for y in frame_feat:
+        #     print(y.shape)
+        #     b, n, c = y.size()
+        #     seq_length = n
+        #     position_ids = torch.arange(
+        #         seq_length, dtype=torch.long, device=y.device)
+        #     position_ids = position_ids.unsqueeze(0).expand(y.size(0), -1)
+        #     frame_position_embeddings = self.frame_position_embeddings(
+        #         position_ids)
+        #     y = y + frame_position_embeddings
+        #     frame_feat_.append(y)
         return self.motion(motion_feat, frame_feat)
 
     # def encode_video(self, x, y):
@@ -183,7 +196,7 @@ class SandevistanCLIP(CLIP):
         return text_probs
 
 
-def build_model(state_dict: dict, T: int = 8, pretrain: bool = True, motion_layers: Optional[int] = None, motion_layers_init: bool = True, train_visual: bool = False, train_text: bool = False):
+def build_model(state_dict: dict, T: int = 8, thres:float=2.0, pretrain: bool = True, motion_layers: Optional[int] = None, motion_layers_init: bool = True, train_visual: bool = False, train_text: bool = False, alpha:float=0.3):
     vit = "visual.proj" in state_dict
 
     if vit:
@@ -232,7 +245,7 @@ def build_model(state_dict: dict, T: int = 8, pretrain: bool = True, motion_laye
     model = SandevistanCLIP(
         embed_dim,
         image_resolution, vision_layers, motion_layers, vision_width, vision_patch_size,
-        context_length, vocab_size, transformer_width, transformer_heads, transformer_layers, T=T
+        context_length, vocab_size, transformer_width, transformer_heads, transformer_layers, T, thres, alpha
     )
 
     for key in ["input_resolution", "context_length", "vocab_size"]:

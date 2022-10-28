@@ -8,11 +8,12 @@ def get_optimizer(cfg: DotMap, model):
     vision_params = list(map(id, model.visual.parameters())) + [id(model.alpha)]
     #temporal_params = list(map(id, model.temporal.parameters()))
     other_params = filter(lambda p: id(p) not in vision_params and p.requires_grad, model.parameters())
-    params = [{'params': other_params},
-              {'params': model.alpha, 'lr': cfg.optim.lr *
-               cfg.optim.f_ratio}]
+    params = [{'params': other_params}]
     if cfg.network.visual.train:
         params += [{'params': model.visual.parameters(), 'lr': cfg.optim.lr *
+               cfg.optim.f_ratio}]
+    if cfg.network.alpha.train:
+        params += [{'params': model.alpha, 'lr': cfg.optim.lr *
                cfg.optim.f_ratio}]
     if cfg.optim.optim == 'adam':
         optimizer = torch.optim.Adam(params,

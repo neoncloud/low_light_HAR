@@ -28,7 +28,10 @@ def load_model():
             pretrain=True,
             motion_layers=cfg.network.motion.num_layers,
             motion_layers_init=False,
-            train_visual=cfg.visual.train
+            train_visual=cfg.visual.train,
+            T=cfg.data.seg_length,
+            thres=cfg.network.motion.thres,
+            alpha=cfg.network.alpha.value
         ).train().cuda()
         optimizer = get_optimizer(cfg, model)
         optimizer.load_state_dict(state_dict['optimizer_state_dict'])
@@ -39,15 +42,18 @@ def load_model():
             state_dict=state_dict['model_state_dict'],
             pretrain=True,
             motion_layers=cfg.network.motion.num_layers,
-            motion_layers_init=True,
-            train_visual=cfg.visual.train
+            motion_layers_init=cfg.network.motion.init,
+            train_visual=cfg.visual.train,
+            T=cfg.data.seg_length,
+            thres=cfg.network.motion.thres,
+            alpha=cfg.network.alpha.value
         ).train().cuda()
         optimizer = get_optimizer(cfg, model)
     else:
         raise NotImplementedError
 
     # lr_scheduler = get_lr_scheduler(cfg, optimizer)
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,'max')
     train_dataloader, validate_dataloader, name_list = get_dataloder(cfg)
     num_text_aug, text_tokenized = text_prompt(name_list)
     with torch.no_grad():
@@ -87,7 +93,8 @@ def train():
                     logits_per_image, _ = model(
                         data['frames'].cuda(), text_features=text_features)
                 label = data['label'].unsqueeze(-1)
-                ground_truth = torch.eq(label, label.T).to(torch.float16)
+                ground_truth = (0.94+0.05*torch.randn(label.shape[0]))*(torch.eq(label, label.T).to(torch.float16))
+                ground_truth += torch.rand_like(ground_truth)*0.01
                 loss = criterion(logits_per_image, ground_truth.cuda())
                 if cfg.optim.amp:
                     scaler.scale(loss).backward()

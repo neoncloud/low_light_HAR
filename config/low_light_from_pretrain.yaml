@@ -1,19 +1,19 @@
 resume:
-pretrain: /mnt/e/vit-b-16-8f.pt
-seed: 114514
+pretrain: /home/neoncloud/low_light/checkpoints/ViT-B/16/hmdb_16/2022_10_28_10_09_11/model_best.pt
+seed: 42
 data:
-  dataset: hmdb_51
-  type: video # video dataset or frames dataset
-  num_segments: 40
+  dataset: low_light
+  type: frames
+  num_segments: 48
   seg_length: 8
   batch_size: 16
-  val_batch_size: 32
+  val_batch_size: 16
   worker: 4
-  num_classes: 51
+  num_classes: 10
   image_tmpl: '{:06d}.jpg'
-  train_list: /home/neoncloud/hmdb_full/train_lite.txt
-  val_list: /home/neoncloud/hmdb_full/validate_lite.txt
-  label_list: /home/neoncloud/hmdb_full/mapping_table.txt
+  train_list: /home/neoncloud/low_light_video/train_.txt
+  val_list: /home/neoncloud/low_light_video/validate_.txt
+  label_list: /home/neoncloud/low_light_video/mapping_table.txt
   index_bias: 1
   input_size: 224
 network:
@@ -21,10 +21,11 @@ network:
   motion:
     thres: 2.0
     num_layers: 4
-    init: True
+    init: False
   visual:
     train: True
-  temporal:
+  alpha:
+    value: 0.4
     train: False
   text:
     train: False
@@ -36,8 +37,8 @@ optim:
   start_epoch: 0
   epoch_offset: 0
   optim: adamw
-  lr: 5.e-7
-  f_ratio: 0.02
+  lr: 1.e-7
+  f_ratio: 0.1
   lr_warmup_step: 5
   momentum: 0.9
   weight_decay: 0.01
@@ -46,7 +47,7 @@ optim:
   clip_gradient: 20
   grad_accu: 4 
 logging:
-  write_freq: 6400
+  write_freq: 20
   eval_freq: 1
-  save_freq: 2
+  save_freq: 5
   chpt_dir: ./checkpoints
