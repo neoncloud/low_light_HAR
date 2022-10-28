@@ -4,9 +4,9 @@ seed: 114514
 data:
   dataset: hmdb_16
   type: frames
-  num_segments: 48
+  num_segments: 40
   seg_length: 8
-  batch_size: 16
+  batch_size: 32
   val_batch_size: 16
   worker: 4
   num_classes: 16
@@ -20,12 +20,12 @@ network:
   arch: ViT-B/16
   motion:
     thres: 2.0
-    num_layers: 4
+    num_layers: 6
     init: False
   visual:
     train: False
   alpha:
-    value: 0.4
+    value: 0.1
     train: False
   text:
     train: False
@@ -45,7 +45,7 @@ optim:
   lr_decay_step: 15
   lr_decay_factor: 0.1
   clip_gradient: 20
-  grad_accu: 4 
+  grad_accu: 2
 logging:
   write_freq: 6400
   eval_freq: 1

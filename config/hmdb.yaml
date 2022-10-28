@@ -1,5 +1,5 @@
 resume:
-pretrain: /home/neoncloud/low_light/checkpoints/ViT-B/16/hmdb_16/2022_10_28_00_34_42/model_best.pt
+pretrain: /home/neoncloud/low_light/checkpoints/ViT-B/16/hmdb_16/2022_10_28_14_22_34/model_best.pt
 seed: 42
 data:
   dataset: hmdb
@@ -23,10 +23,10 @@ network:
     num_layers: 4
     init: False
   visual:
-    train: True
+    train: False
   alpha:
     value: 0.4
-    train: False
+    train: True
   text:
     train: False
 optim:
@@ -37,7 +37,7 @@ optim:
   start_epoch: 0
   epoch_offset: 0
   optim: adamw
-  lr: 2.e-7
+  lr: 8.e-7
   f_ratio: 0.05
   lr_warmup_step: 5
   momentum: 0.9

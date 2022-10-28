@@ -17,7 +17,7 @@ from einops import rearrange
 import time
 from tqdm import tqdm, trange
 from torch.utils.tensorboard import SummaryWriter
-
+import gc
 
 def load_model():
     if cfg.resume is not None:
@@ -32,7 +32,7 @@ def load_model():
             T=cfg.data.seg_length,
             thres=cfg.network.motion.thres,
             alpha=cfg.network.alpha.value
-        ).train().cuda()
+        ).cuda()
         optimizer = get_optimizer(cfg, model)
         optimizer.load_state_dict(state_dict['optimizer_state_dict'])
     elif cfg.pretrain is not None:
@@ -61,7 +61,6 @@ def load_model():
             rearrange(text_tokenized, 'c n d -> (c n) d').cuda())
         all_text_features = rearrange(
             all_text_features, '(c n) d -> c n d', n=num_text_aug)
-
     return model, optimizer, lr_scheduler, start_epoch, train_dataloader, validate_dataloader, num_text_aug, text_tokenized, all_text_features
 
 
@@ -102,7 +101,7 @@ def train():
                 # Make ground Truth (confussion matrix)
                 label = data['label'].unsqueeze(-1)
                 ground_truth = (0.94+0.05*torch.randn(label.shape[0]))*(torch.eq(label, label.T).to(torch.float16))
-                ground_truth += torch.rand_like(ground_truth)*0.01
+                #ground_truth += torch.rand_like(ground_truth)*0.01
 
                 loss_img = criterion_img(logits_per_image, ground_truth.cuda())
                 loss_txt = criterion_txt(logits_per_text, ground_truth.cuda())
@@ -133,6 +132,7 @@ def train():
                     torch.cuda.empty_cache()
                     prec1 = eval(epoch)
                     torch.cuda.empty_cache()
+                    gc.collect()
                 is_best = prec1 > best_prec1
                 best_prec1 = max(prec1, best_prec1)
                 print('Testing: {}/{}'.format(prec1, best_prec1))
@@ -203,7 +203,8 @@ if __name__ == '__main__':
     writer = SummaryWriter(working_dir)
 
     model, optimizer, lr_scheduler, start_epoch, train_dataloader, validate_dataloader, num_text_aug, text_tokenized, all_text_features = load_model()
-
+    gc.collect()
+    torch.cuda.empty_cache()
     if args.train:
         if cfg.optim.distributed:
             torch.distributed.init_process_group(backend='nccl')

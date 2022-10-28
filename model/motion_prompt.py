@@ -6,14 +6,14 @@ from einops import rearrange
 class ResidualCrossAttentionBlock(ResidualAttentionBlock):
     def __init__(self, d_model: int, n_head: int, attn_mask: torch.Tensor = None):
         super().__init__(d_model, n_head, attn_mask)
-        self.ln_1_y = LayerNorm(d_model)
+        #self.ln_1_y = LayerNorm(d_model)
     
-    def attention(self, x: torch.Tensor, y: torch.Tensor):
+    def attention(self, x: torch.Tensor, y: torch.Tensor=None):
         self.attn_mask = self.attn_mask.to(dtype=x.dtype, device=x.device) if self.attn_mask is not None else None
-        return self.attn(y, x, x, need_weights=False, attn_mask=self.attn_mask)[0]
+        return self.attn(x, x, x, need_weights=False, attn_mask=self.attn_mask)[0]
 
-    def forward(self, x: torch.Tensor, y: torch.Tensor):
-        x = x + self.attention(self.ln_1(x),self.ln_1_y(y))
+    def forward(self, x: torch.Tensor, y: torch.Tensor=None):
+        x = x + self.attention(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
         return x
 
@@ -24,7 +24,7 @@ class CrossTransformer(Transformer):
     
     def forward(self, x: torch.Tensor, y: list):
         for blk, y_ in zip(self.resblocks, y[:len(self.resblocks)]):
-            x = blk(x, y_)
+            x = torch.utils.checkpoint.checkpoint(blk,x)
         return x
 
 class MotionPrompt(VisionTransformer):
@@ -62,15 +62,3 @@ class MotionPrompt(VisionTransformer):
             x = x @ self.proj
 
         return x
-
-# class MotionPrompt(nn.Module):
-#     def __init__(self, n_trunk:int=8, out_features:int=2048, thres:float=4.0) -> None:
-#         super().__init__()
-
-#         self.frame_diff = Sandevistan(n_trunks=n_trunk, thres=thres)
-    
-#     def forward(self, x):
-#         with torch.no_grad():
-#             # B T C H W
-#             x = self.frame_diff(x)
-#         return x

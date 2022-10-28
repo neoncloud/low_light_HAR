@@ -6,8 +6,8 @@ data:
   type: video # video dataset or frames dataset
   num_segments: 40
   seg_length: 8
-  batch_size: 16
-  val_batch_size: 32
+  batch_size: 32
+  val_batch_size: 16
   worker: 4
   num_classes: 51
   image_tmpl: '{:06d}.jpg'
@@ -20,11 +20,12 @@ network:
   arch: ViT-B/16
   motion:
     thres: 2.0
-    num_layers: 4
+    num_layers: 6
     init: True
   visual:
-    train: True
-  temporal:
+    train: False
+  alpha:
+    value: 0.1
     train: False
   text:
     train: False

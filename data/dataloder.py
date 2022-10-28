@@ -20,7 +20,8 @@ def get_dataloder(cfg: DotMap):
             shuffle = True,
             batch_size = cfg.data.batch_size,
             num_workers = cfg.data.worker,
-            pin_memory = True
+            pin_memory = True,
+            prefetch_factor=1
         )
     else:
         train_dataset = None
@@ -32,15 +33,16 @@ def get_dataloder(cfg: DotMap):
         frame_size=cfg.data.input_size,
         video_list_path=cfg.data.val_list,
         video_label_path=cfg.data.label_list,
-        image_tmpl=cfg.data.image_tmpl
+        image_tmpl=cfg.data.image_tmpl,
     )
 
     validate_dataloader = DataLoader(
         dataset = validate_dataset,
         shuffle = True,
         batch_size = cfg.data.val_batch_size,
-        num_workers = cfg.data.worker,
-        pin_memory = True
+        num_workers = 2,
+        pin_memory = False,
+        prefetch_factor=1
     )
 
     return train_dataloader, validate_dataloader, validate_dataset.name_list

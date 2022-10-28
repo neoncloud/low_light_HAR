@@ -5,7 +5,6 @@ from clip.model import CLIP, ResidualAttentionBlock, VisionTransformer, convert_
 from util.frame_diff import Sandevistan
 from einops import rearrange
 from model.motion_prompt import MotionPrompt, ResidualCrossAttentionBlock
-import warnings
 
 
 class Transformer_(nn.Module):
@@ -150,7 +149,7 @@ class SandevistanCLIP(CLIP):
         frames = rearrange(frames, 'b t c h w -> (b t) c h w').detach()
         class_features, frame_features = self.visual(frames.type(self.dtype))
         motion_features = self.encode_motion(
-            motion_feat.type(self.dtype), frame_features)
+            motion_feat.type(self.dtype).requires_grad_(True), frame_features)
 
         #del frame_features
         class_features = class_features.view(
