@@ -67,7 +67,8 @@ def load_model():
 
 def train():
     #criterion = torch.nn.CrossEntropyLoss()
-    criterion = KLLoss()
+    criterion_img = KLLoss()
+    criterion_txt = KLLoss()
 
     if cfg.optim.amp:
         scaler = GradScaler()
@@ -79,23 +80,34 @@ def train():
     best_prec1 = 0.0
     for epoch in trange(start_epoch, cfg.optim.epochs):
         for i, data in enumerate(tqdm(train_dataloader)):
+
+            # sample a prompt
             text_id = torch.randint(
                 high=num_text_aug, size=(data['label'].shape[0],))
             if cfg.network.text.train:
                 text_token = text_tokenized[text_id, data['label'], :].cuda()
             else:
                 text_features = all_text_features[data['label'], text_id, :]
+
+            ########## FORWARD #############
             with amp_ctx:
                 if cfg.network.text.train:
-                    logits_per_image, _ = model(
+                    logits_per_image, logits_per_text = model(
                         data['frames'].cuda(), text=text_token.cuda())
                 else:
-                    logits_per_image, _ = model(
+                    logits_per_image, logits_per_text = model(
                         data['frames'].cuda(), text_features=text_features)
+            ########## FORWARD #############
+
+                # Make ground Truth (confussion matrix)
                 label = data['label'].unsqueeze(-1)
                 ground_truth = (0.94+0.05*torch.randn(label.shape[0]))*(torch.eq(label, label.T).to(torch.float16))
                 ground_truth += torch.rand_like(ground_truth)*0.01
-                loss = criterion(logits_per_image, ground_truth.cuda())
+
+                loss_img = criterion_img(logits_per_image, ground_truth.cuda())
+                loss_txt = criterion_txt(logits_per_text, ground_truth.cuda())
+                loss = (loss_img+loss_txt)/2
+
                 if cfg.optim.amp:
                     scaler.scale(loss).backward()
                 else:
@@ -112,8 +124,8 @@ def train():
             if local_rank == 0:
                 total_steps = i*cfg.data.batch_size+epoch*len(train_dataloader)
                 if total_steps % cfg.logging.write_freq == 0:
-                    print('loss:', loss.cpu().item())
-                    writer.add_scalar('loss', loss.cpu().item(), total_steps)
+                    print('loss:', loss_img.cpu().item())
+                    writer.add_scalar('loss', loss_img.cpu().item(), total_steps)
 
         if local_rank == 0:
             if epoch % cfg.logging.eval_freq == 0:

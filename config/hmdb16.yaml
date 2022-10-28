@@ -1,5 +1,5 @@
 resume:
-pretrain: /home/neoncloud/low_light/checkpoints/ViT-B/16/hmdb_16/2022_10_28_00_34_42/model_best.pt
+pretrain: /mnt/e/vit-b-16-8f.pt
 seed: 114514
 data:
   dataset: hmdb_16
@@ -23,7 +23,7 @@ network:
     num_layers: 4
     init: False
   visual:
-    train: True
+    train: False
   alpha:
     value: 0.4
     train: False
