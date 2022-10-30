@@ -6,8 +6,8 @@ data:
   type: video # video dataset or frames dataset
   num_segments: 40
   seg_length: 8
-  batch_size: 32
-  val_batch_size: 16
+  batch_size: 24
+  val_batch_size: 8
   worker: 4
   num_classes: 51
   image_tmpl: '{:06d}.jpg'
@@ -45,7 +45,7 @@ optim:
   lr_decay_step: 15
   lr_decay_factor: 0.1
   clip_gradient: 20
-  grad_accu: 4 
+  grad_accu: 2
 logging:
   write_freq: 6400
   eval_freq: 1

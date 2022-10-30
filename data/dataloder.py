@@ -14,14 +14,17 @@ def get_dataloder(cfg: DotMap):
             video_label_path=cfg.data.label_list,
             image_tmpl=cfg.data.image_tmpl
         )
-
+        if cfg.optim.distributed:
+            from torch.utils.data.distributed import DistributedSampler
+            train_sampler = DistributedSampler(train_dataset)
         train_dataloader = DataLoader(
             dataset = train_dataset,
-            shuffle = True,
+            shuffle = not cfg.optim.distributed,
             batch_size = cfg.data.batch_size,
             num_workers = cfg.data.worker,
             pin_memory = True,
-            prefetch_factor=1
+            prefetch_factor=1,
+            sampler=train_sampler if cfg.optim.distributed else None
         )
     else:
         train_dataset = None

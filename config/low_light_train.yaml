@@ -1,12 +1,13 @@
 resume:
-pretrain: /mnt/e/vit-b-16-8f_modified.pt
+pretrain: /mnt/e/vit-b-16-8f.pt
 seed: 42
 data:
   dataset: low_light
   type: frames
-  num_segments: 32
+  num_segments: 40
   seg_length: 8
-  batch_size: 12
+  batch_size: 24
+  val_batch_size: 8
   worker: 4
   num_classes: 10
   image_tmpl: '{:06d}.jpg'
@@ -18,30 +19,43 @@ data:
 network:
   arch: ViT-B/16
   motion:
-    thres: 4.0
+    train: True
+    thres: 6.0
     num_layers: 4
-    init: True
+    init: False
+    lr: 1.e-7
   visual:
     train: False
+    lr: 1.e-7
+  fusion:
+    type: 'transf' # transf or mlp or mean
+    train: True
+    lr: 1.e-7
+  other:
+    alpha: 0.1 # deprecated
+    train: True
+    lr: 1.e-8
   text:
     train: False
 optim:
   distributed: False
   amp: True
   type: cosine
-  epochs: 150
+  epochs: 100
   start_epoch: 0
   epoch_offset: 0
   optim: adamw
-  lr: 5.e-6
-  lr_warmup_step: 5
+  lr: 1.e-7
+  # f_ratio: 0.02
+  lr_warmup_step: 20
   momentum: 0.9
-  weight_decay: 0.2
+  weight_decay: 0.01
   lr_decay_step: 15
   lr_decay_factor: 0.1
   clip_gradient: 20
+  grad_accu: 2
 logging:
-  write_freq: 640
+  write_freq: 6400
   eval_freq: 1
-  save_freq: 5
+  save_freq: 2
   chpt_dir: ./checkpoints

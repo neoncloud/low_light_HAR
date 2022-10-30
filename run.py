@@ -19,9 +19,29 @@ from tqdm import tqdm, trange
 from torch.utils.tensorboard import SummaryWriter
 import gc
 
+# import debugpy
+# debugpy.listen(("localhost", 5678))
+# def hook_fn(m, i, o):
+#   print(m)
+#   print("------------Input Grad------------")
+
+#   for grad in i:
+#     try:
+#       print(grad.shape)
+#     except AttributeError: 
+#       print ("None found for Gradient")
+
+#   print("------------Output Grad------------")
+#   for grad in o:  
+#     try:
+#       print(grad.shape)
+#     except AttributeError: 
+#       print ("None found for Gradient")
+#   print("\n")
+
 def load_model():
     if cfg.resume is not None:
-        state_dict = torch.load(cfg.resume)
+        state_dict = torch.load(cfg.resume, map_location='cuda')
         start_epoch = state_dict['epoch']
         model = build_model(
             state_dict=state_dict['model_state_dict'],
@@ -31,7 +51,8 @@ def load_model():
             train_visual=cfg.visual.train,
             T=cfg.data.seg_length,
             thres=cfg.network.motion.thres,
-            alpha=cfg.network.alpha.value
+            alpha=cfg.network.other.alpha,
+            fusion_type=cfg.network.fusion.type
         ).cuda()
         optimizer = get_optimizer(cfg, model)
         optimizer.load_state_dict(state_dict['optimizer_state_dict'])
@@ -46,14 +67,15 @@ def load_model():
             train_visual=cfg.visual.train,
             T=cfg.data.seg_length,
             thres=cfg.network.motion.thres,
-            alpha=cfg.network.alpha.value
-        ).train().cuda()
+            alpha=cfg.network.other.alpha,
+            fusion_type=cfg.network.fusion.type
+        ).cuda()
         optimizer = get_optimizer(cfg, model)
     else:
         raise NotImplementedError
-
-    # lr_scheduler = get_lr_scheduler(cfg, optimizer)
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,'max')
+    del state_dict
+    lr_scheduler = get_lr_scheduler(cfg, optimizer)
+    #lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,'max')
     train_dataloader, validate_dataloader, name_list = get_dataloder(cfg)
     num_text_aug, text_tokenized = text_prompt(name_list)
     with torch.no_grad():
@@ -61,6 +83,11 @@ def load_model():
             rearrange(text_tokenized, 'c n d -> (c n) d').cuda())
         all_text_features = rearrange(
             all_text_features, '(c n) d -> c n d', n=num_text_aug)
+    if cfg.optim.distributed:
+        from torch.nn.parallel import DistributedDataParallel
+        print(f"[{os.getpid()}] (local_rank = {local_rank}) training...")
+        model = DistributedDataParallel(model, device_ids=[local_rank],output_device=local_rank).module
+
     return model, optimizer, lr_scheduler, start_epoch, train_dataloader, validate_dataloader, num_text_aug, text_tokenized, all_text_features
 
 
@@ -191,8 +218,11 @@ if __name__ == '__main__':
     with open(args.config, 'r') as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
     cfg = DotMap(cfg)
+
     if cfg.optim.distributed:
         local_rank = int(os.environ["LOCAL_RANK"])
+        torch.distributed.init_process_group(backend='nccl')
+        torch.cuda.set_device(local_rank)
     else:
         local_rank = 0
     torch.manual_seed(cfg.seed)
@@ -206,9 +236,6 @@ if __name__ == '__main__':
     gc.collect()
     torch.cuda.empty_cache()
     if args.train:
-        if cfg.optim.distributed:
-            torch.distributed.init_process_group(backend='nccl')
-            torch.cuda.set_device(local_rank)
         train()
     elif args.eval:
         eval(0)

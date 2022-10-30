@@ -1,13 +1,13 @@
 resume:
 pretrain: /mnt/e/vit-b-16-8f.pt
-seed: 114514
+seed: 1234
 data:
   dataset: hmdb_16
   type: frames
   num_segments: 40
   seg_length: 8
-  batch_size: 32
-  val_batch_size: 16
+  batch_size: 24
+  val_batch_size: 8
   worker: 4
   num_classes: 16
   image_tmpl: '{:06d}.jpg'
@@ -20,8 +20,8 @@ network:
   arch: ViT-B/16
   motion:
     thres: 2.0
-    num_layers: 6
-    init: False
+    num_layers: 4
+    init: True
   visual:
     train: False
   alpha:
@@ -37,7 +37,7 @@ optim:
   start_epoch: 0
   epoch_offset: 0
   optim: adamw
-  lr: 5.e-7
+  lr: 1.e-7
   f_ratio: 0.02
   lr_warmup_step: 5
   momentum: 0.9

@@ -1,7 +1,8 @@
+from collections import OrderedDict
 from typing import Optional, Tuple, Union
 import torch
 import torch.nn as nn
-from clip.model import CLIP, ResidualAttentionBlock, VisionTransformer, convert_weights
+from clip.model import CLIP, ResidualAttentionBlock, VisionTransformer, QuickGELU, Transformer, LayerNorm
 from util.frame_diff import Sandevistan
 from einops import rearrange
 from model.motion_prompt import MotionPrompt, ResidualCrossAttentionBlock
@@ -17,8 +18,10 @@ class Transformer_(nn.Module):
 
     def forward(self, x: torch.Tensor, num_feats: int = 0):
         all_feats = []
+        # if not x.requires_grad:
+        #     x = x.requires_grad_(True)
         for i, blk in enumerate(self.resblocks):
-            x = blk(x)
+            x = torch.utils.checkpoint.checkpoint(blk, x)
             if i < num_feats:
                 all_feats.append(x)
             #x = x['out']
@@ -39,6 +42,46 @@ class CrossTransformer_(nn.Module):
         x = self.resblocks(x)
         return self.cross_resblock(x, y)
 
+class FusionModel(nn.Module):
+    def __init__(self, width:int, fusion_type:str='transf', transformer_heads:int=8) -> None:
+        super().__init__()
+        if fusion_type == 'transf':
+            self.fusion = Transformer(
+                width=width,
+                layers=2,
+                heads=transformer_heads
+            )
+            # self.ln_pre = LayerNorm(width)
+            # self.ln_post = LayerNorm(width)
+            # self.proj = nn.Parameter(torch.randn(width, width))
+        elif fusion_type == 'mlp':
+            self.fusion = nn.Sequential(OrderedDict([
+                ("c_fc", nn.Linear(transformer_heads+1, 2*transformer_heads)),
+                ("gelu", QuickGELU()),
+                ("c_proj", nn.Linear(2*transformer_heads, 1))
+            ]))
+        elif fusion_type == 'mean':
+            self.fusion = None
+        else:
+            raise NotImplementedError
+
+        self.fusion_type = fusion_type
+
+    def forward(self, x:torch.Tensor):
+        b, c, f = x.shape
+        if self.fusion_type == 'transf':
+            #x = self.ln_pre(x)
+            x = (x+self.fusion(x)).mean(0)
+            #x = self.ln_post(x[0,:,:])
+            #x = x @ self.proj
+        elif self.fusion_type == 'mlp':
+            x = x.permute(0, 2, 1)
+            x = self.fusion(x)
+            x = x.squeeze()
+        elif self.fusion_type == 'mean':
+            x = x.mean(1)
+        return x
+
 
 class VisionTransformer_(VisionTransformer):
     def __init__(self, input_resolution: int, patch_size: int, width: int, layers: int, heads: int, output_dim: int, num_feats: int):
@@ -47,22 +90,22 @@ class VisionTransformer_(VisionTransformer):
         self.num_feats = num_feats
 
     def forward(self, x: torch.Tensor):
-        x = self.conv1(x)  # shape = [*, width, grid, grid]
+        x = torch.utils.checkpoint.checkpoint(
+            self.conv1, x)  # shape = [*, width, grid, grid]
         # shape = [*, width, grid ** 2]
         x = x.reshape(x.shape[0], x.shape[1], -1)
         x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
         x = torch.cat([self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1],
                       dtype=x.dtype, device=x.device), x], dim=1)  # shape = [*, grid ** 2 + 1, width]
         x = x + self.positional_embedding.to(x.dtype)
-        x = self.ln_pre(x)
+        x = torch.utils.checkpoint.checkpoint(self.ln_pre, x)
 
         x = x.permute(1, 0, 2)  # NLD -> LND
         ######
         all_feats, x = self.transformer(x, self.num_feats)
         ######
-        x = x.permute(1, 0, 2)  # LND -> NLD
-
-        x = self.ln_post(x[:, 0, :])
+        x = x[0, :, :]  # LND -> NLD
+        x = torch.utils.checkpoint.checkpoint(self.ln_post, x)
 
         if self.proj is not None:
             x = x @ self.proj
@@ -71,7 +114,7 @@ class VisionTransformer_(VisionTransformer):
 
 
 class SandevistanCLIP(CLIP):
-    def __init__(self, embed_dim: int, image_resolution: int, vision_layers: Union[Tuple[int, int, int, int], int], motion_layers: Union[Tuple[int, int, int, int], int], vision_width: int, vision_patch_size: int, context_length: int, vocab_size: int, transformer_width: int, transformer_heads: int, transformer_layers: int, T: int = 8, thres: float = 4.0, alpha:float=0.3):
+    def __init__(self, embed_dim: int, image_resolution: int, vision_layers: Union[Tuple[int, int, int, int], int], motion_layers: Union[Tuple[int, int, int, int], int], vision_width: int, vision_patch_size: int, context_length: int, vocab_size: int, transformer_width: int, transformer_heads: int, transformer_layers: int, T: int = 8, thres: float = 4.0, alpha: float = 0.3, fusion_type: str = 'transf'):
         super().__init__(embed_dim, image_resolution, vision_layers, vision_width, vision_patch_size,
                          context_length, vocab_size, transformer_width, transformer_heads, transformer_layers)
         vision_heads = vision_width // 64
@@ -95,17 +138,17 @@ class SandevistanCLIP(CLIP):
             T=T
         )
 
-        # self.temporal = CrossTransformer_(
-        #     width=embed_dim,
-        #     layers=7,
-        #     heads=transformer_heads
-        # )
+        self.fusion = FusionModel(
+            width=embed_dim,
+            fusion_type=fusion_type,
+            transformer_heads=transformer_heads
+        )
 
         # self.frame_position_embeddings = nn.Embedding(
         #     context_length, embed_dim)
         #self.T = T
         self.frame_diff = Sandevistan(n_trunks=T, thres=thres)
-        self.alpha = nn.parameter.Parameter(torch.tensor([alpha]))
+        #self.alpha = nn.parameter.Parameter(torch.tensor([alpha]))
 
     def encode_motion(self, motion_feat: torch.Tensor, frame_feat: list):
         # frame_feat_ = []
@@ -142,24 +185,32 @@ class SandevistanCLIP(CLIP):
 
     def encode_image(self, video: torch.Tensor):
         b, t, c, h, w = video.shape
-        motion_feat, frames = self.frame_diff(video)
-        #motion_feat = torch.cat((motion_feat,frames),2)
-        motion_feat = rearrange(
-            motion_feat, 'b t c h w -> (b t) c h w').detach()
-        frames = rearrange(frames, 'b t c h w -> (b t) c h w').detach()
-        class_features, frame_features = self.visual(frames.type(self.dtype))
-        motion_features = self.encode_motion(
-            motion_feat.type(self.dtype).requires_grad_(True), frame_features)
+        motion, frames = self.frame_diff(video)
+        motion = rearrange(
+            motion, 'b t c h w -> (b t) c h w').detach()
+        frames = rearrange(
+            frames, 'b t c h w -> (b t) c h w').detach()
+        class_features, frame_features = self.visual(
+            frames.type(self.dtype).requires_grad_(True))
+        video_features = self.encode_motion(
+            motion.type(self.dtype).requires_grad_(True),
+            [f.requires_grad_(True) for f in frame_features])
 
         #del frame_features
-        class_features = class_features.view(
-            b, -1, class_features.shape[-1])
-        motion_features = motion_features.view(
-            b, -1, motion_features.shape[-1])
+        # class_features = class_features.view(
+        #     b, -1, class_features.shape[-1]).mean(1)
+        # motion_features = motion_features.view(
+        #     b, -1, motion_features.shape[-1]).mean(1)
         # video_features = self.encode_video(
         #     class_features, motion_features).mean(1)
-        video_features = (self.alpha*class_features+(1-self.alpha)*motion_features).mean(1)
+        #video_features = (self.alpha*class_features+(1-self.alpha)*motion_features).mean(1)
+        class_features = rearrange(class_features, '(b t) c -> t b c', b=b).mean(0, keepdim=True)
+        video_features = rearrange(video_features, '(b t) c -> t b c', b=b)
 
+        #video_features = reduce(video_features, '(b t) f -> b f', 'mean', b=b)
+        # b t+1 f
+        video_features = torch.cat((class_features, video_features),dim=0)
+        video_features = self.fusion(video_features)
         return video_features
 
     def forward(self, image: torch.Tensor, text: Optional[torch.Tensor] = None, text_features: Optional[torch.Tensor] = None):
@@ -195,7 +246,7 @@ class SandevistanCLIP(CLIP):
         return text_probs
 
 
-def build_model(state_dict: dict, T: int = 8, thres:float=2.0, pretrain: bool = True, motion_layers: Optional[int] = None, motion_layers_init: bool = True, train_visual: bool = False, train_text: bool = False, alpha:float=0.3):
+def build_model(state_dict: dict, T: int = 8, thres: float = 2.0, pretrain: bool = True, motion_layers: Optional[int] = None, motion_layers_init: bool = True, train_visual: bool = False, train_text: bool = False, alpha: float = 0.3, fusion_type: str = 'transf'):
     vit = "visual.proj" in state_dict
 
     if vit:
@@ -244,7 +295,7 @@ def build_model(state_dict: dict, T: int = 8, thres:float=2.0, pretrain: bool = 
     model = SandevistanCLIP(
         embed_dim,
         image_resolution, vision_layers, motion_layers, vision_width, vision_patch_size,
-        context_length, vocab_size, transformer_width, transformer_heads, transformer_layers, T, thres, alpha
+        context_length, vocab_size, transformer_width, transformer_heads, transformer_layers, T, thres, alpha, fusion_type
     )
 
     for key in ["input_resolution", "context_length", "vocab_size"]:
