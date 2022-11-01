@@ -5,6 +5,7 @@
 import torch.nn.functional as F
 import torch.nn as nn
 
+
 class KLLoss(nn.Module):
     """Loss that uses a 'hinge' on the lower bound.
     This means that for samples with a label value smaller than the threshold, the loss is zero if the prediction is

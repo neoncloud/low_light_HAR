@@ -42,8 +42,9 @@ class CrossTransformer_(nn.Module):
         x = self.resblocks(x)
         return self.cross_resblock(x, y)
 
+
 class FusionModel(nn.Module):
-    def __init__(self, width:int, fusion_type:str='transf', transformer_heads:int=8) -> None:
+    def __init__(self, width: int, fusion_type: str = 'transf', transformer_heads: int = 8) -> None:
         super().__init__()
         if fusion_type == 'transf':
             self.fusion = Transformer(
@@ -67,7 +68,7 @@ class FusionModel(nn.Module):
 
         self.fusion_type = fusion_type
 
-    def forward(self, x:torch.Tensor):
+    def forward(self, x: torch.Tensor):
         b, c, f = x.shape
         if self.fusion_type == 'transf':
             #x = self.ln_pre(x)
@@ -206,12 +207,13 @@ class SandevistanCLIP(CLIP):
         # video_features = self.encode_video(
         #     class_features, motion_features).mean(1)
         #video_features = (self.alpha*class_features+(1-self.alpha)*motion_features).mean(1)
-        class_features = rearrange(class_features, '(b t) c -> t b c', b=b).mean(0, keepdim=True)
+        class_features = rearrange(
+            class_features, '(b t) c -> t b c', b=b).mean(0, keepdim=True)
         video_features = rearrange(video_features, '(b t) c -> t b c', b=b)
 
         #video_features = reduce(video_features, '(b t) f -> b f', 'mean', b=b)
         # b t+1 f
-        video_features = torch.cat((class_features, video_features),dim=0)
+        video_features = torch.cat((class_features, video_features), dim=0)
         video_features = self.fusion(video_features)
         return video_features
 

@@ -8,15 +8,19 @@ def get_optimizer(cfg: DotMap, model):
     vision_params = list(map(id, model.visual.parameters()))
     motion_params = list(map(id, model.motion.parameters()))
     fusion_params = list(map(id, model.fusion.parameters()))
-    other_params = filter(lambda p: id(p) not in vision_params+motion_params+fusion_params and p.requires_grad, model.parameters())
+    other_params = filter(lambda p: id(p) not in vision_params +
+                          motion_params+fusion_params and p.requires_grad, model.parameters())
 
     params = []
     if cfg.network.visual.train:
-        params += [{'params': model.visual.parameters(), 'lr': cfg.network.visual.lr}]
+        params += [{'params': model.visual.parameters(),
+                    'lr': cfg.network.visual.lr}]
     if cfg.network.motion.train:
-        params += [{'params': model.motion.parameters(), 'lr': cfg.network.motion.lr}]
+        params += [{'params': model.motion.parameters(),
+                    'lr': cfg.network.motion.lr}]
     if cfg.network.fusion.train:
-        params += [{'params': model.fusion.parameters(), 'lr': cfg.network.fusion.lr}]
+        params += [{'params': model.fusion.parameters(),
+                    'lr': cfg.network.fusion.lr}]
     if cfg.network.other.train:
         params += [{'params': other_params, 'lr': cfg.network.other.lr}]
 

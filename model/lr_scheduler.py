@@ -38,7 +38,8 @@ class WarmupLR(_LRScheduler):
             if self.last_epoch < self.warmup_epochs[group_index]:
                 progress = self.last_epoch / self.warmup_epochs[group_index]
                 factor = progress ** self.warmup_powers[group_index]
-                lr_gap = self.base_lrs[group_index] - self.warmup_lrs[group_index]
+                lr_gap = self.base_lrs[group_index] - \
+                    self.warmup_lrs[group_index]
                 curr_lrs.append(factor * lr_gap + self.warmup_lrs[group_index])
             else:
                 curr_lrs.append(self.get_single_lr_after_warmup(group_index))
@@ -98,7 +99,8 @@ class WarmupCosineAnnealingLR(WarmupLR):
 
     def get_single_lr_after_warmup(self, group_index):
         warmup_epoch = self.warmup_epochs[group_index]
-        progress = (self.last_epoch - warmup_epoch) / (self.total_epoch - warmup_epoch)
+        progress = (self.last_epoch - warmup_epoch) / \
+            (self.total_epoch - warmup_epoch)
         progress = min(progress, 1.0)
         cosine_progress = (math.cos(math.pi * progress) + 1) / 2
         factor = cosine_progress * (1 - self.final_factor) + self.final_factor
@@ -116,7 +118,8 @@ class WarmupExponentialLR(WarmupLR):
                  warmup_lrs=0,
                  last_epoch=-1):
         if final_factor <= 0:
-            raise ValueError('final_factor ({}) <= 0 not allowed'.format(final_factor))
+            raise ValueError(
+                'final_factor ({}) <= 0 not allowed'.format(final_factor))
         self.total_epoch = total_epoch
         self.final_factor = final_factor
         super(WarmupExponentialLR, self).__init__(optimizer,
@@ -127,7 +130,8 @@ class WarmupExponentialLR(WarmupLR):
 
     def get_single_lr_after_warmup(self, group_index):
         warmup_epoch = self.warmup_epochs[group_index]
-        progress = (self.last_epoch - warmup_epoch) / (self.total_epoch - warmup_epoch)
+        progress = (self.last_epoch - warmup_epoch) / \
+            (self.total_epoch - warmup_epoch)
         progress = min(progress, 1.0)
         factor = self.final_factor ** progress
         return self.base_lrs[group_index] * factor
@@ -278,7 +282,8 @@ class ReduceLROnPlateau(object):
         if mode not in {'min', 'max'}:
             raise ValueError('mode ' + mode + ' is unknown!')
         if threshold_mode not in {'rel', 'abs'}:
-            raise ValueError('threshold mode ' + threshold_mode + ' is unknown!')
+            raise ValueError('threshold mode ' +
+                             threshold_mode + ' is unknown!')
 
         if mode == 'min':
             self.mode_worse = inf
@@ -292,4 +297,5 @@ class ReduceLROnPlateau(object):
 
     def load_state_dict(self, state_dict):
         self.__dict__.update(state_dict)
-        self._init_is_better(mode=self.mode, threshold=self.threshold, threshold_mode=self.threshold_mode)
+        self._init_is_better(
+            mode=self.mode, threshold=self.threshold, threshold_mode=self.threshold_mode)

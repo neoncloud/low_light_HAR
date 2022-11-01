@@ -28,16 +28,17 @@ import gc
 #   for grad in i:
 #     try:
 #       print(grad.shape)
-#     except AttributeError: 
+#     except AttributeError:
 #       print ("None found for Gradient")
 
 #   print("------------Output Grad------------")
-#   for grad in o:  
+#   for grad in o:
 #     try:
 #       print(grad.shape)
-#     except AttributeError: 
+#     except AttributeError:
 #       print ("None found for Gradient")
 #   print("\n")
+
 
 def load_model():
     if cfg.resume is not None:
@@ -86,7 +87,8 @@ def load_model():
     if cfg.optim.distributed:
         from torch.nn.parallel import DistributedDataParallel
         print(f"[{os.getpid()}] (local_rank = {local_rank}) training...")
-        model = DistributedDataParallel(model, device_ids=[local_rank],output_device=local_rank).module
+        model = DistributedDataParallel(
+            model, device_ids=[local_rank], output_device=local_rank).module
 
     return model, optimizer, lr_scheduler, start_epoch, train_dataloader, validate_dataloader, num_text_aug, text_tokenized, all_text_features
 
@@ -114,8 +116,9 @@ def train():
                 text_token = text_tokenized[text_id, data['label'], :].cuda()
             else:
                 text_features = all_text_features[data['label'], text_id, :]
-            
-            grad_accu_ctx = model.no_sync() if cfg.optim.distributed and (i+1) % cfg.optim.grad_accu != 0 else nullcontext()
+
+            grad_accu_ctx = model.no_sync() if cfg.optim.distributed and (
+                i+1) % cfg.optim.grad_accu != 0 else nullcontext()
 
             ########## FORWARD #############
             with amp_ctx, grad_accu_ctx:
@@ -129,7 +132,8 @@ def train():
 
                 # Make ground Truth (confussion matrix)
                 label = data['label'].unsqueeze(-1)
-                ground_truth = (0.94+0.05*torch.randn(label.shape[0]))*(torch.eq(label, label.T).to(torch.float16))
+                ground_truth = (
+                    0.94+0.05*torch.randn(label.shape[0]))*(torch.eq(label, label.T).to(torch.float16))
                 #ground_truth += torch.rand_like(ground_truth)*0.01
 
                 loss_img = criterion_img(logits_per_image, ground_truth.cuda())
@@ -153,7 +157,8 @@ def train():
                 total_steps = i*cfg.data.batch_size+epoch*len(train_dataloader)
                 if total_steps % cfg.logging.write_freq == 0:
                     print('loss:', loss_img.cpu().item())
-                    writer.add_scalar('loss', loss_img.cpu().item(), total_steps)
+                    writer.add_scalar(
+                        'loss', loss_img.cpu().item(), total_steps)
 
         if local_rank == 0:
             if epoch % cfg.logging.eval_freq == 0:
@@ -168,12 +173,14 @@ def train():
                 lr_scheduler.step(best_prec1)
                 if is_best:
                     print('Saving:')
-                    best_saving(working_dir, epoch, model, optimizer, lr_scheduler)
+                    best_saving(working_dir, epoch, model,
+                                optimizer, lr_scheduler)
 
             if epoch % cfg.logging.save_freq == 0:
                 print('Saving:')
                 filename = "{}/last_model.pt".format(working_dir)
                 epoch_saving(epoch, model, optimizer, lr_scheduler, filename)
+
 
 @torch.no_grad()
 def eval(curr_epoch):

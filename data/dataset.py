@@ -1,3 +1,4 @@
+from torchvision.io import read_video
 from torch.utils.data import Dataset
 import os
 import csv
@@ -11,12 +12,16 @@ try:
     BICUBIC = InterpolationMode.BICUBIC
 except ImportError:
     BICUBIC = Image.BICUBIC
+
+
 def _transform_video(n_px):
     return Compose([
         Resize(n_px, interpolation=BICUBIC),
         CenterCrop(n_px),
-        Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
+        Normalize((0.48145466, 0.4578275, 0.40821073),
+                  (0.26862954, 0.26130258, 0.27577711)),
     ])
+
 
 class VideoFramesDataset(Dataset):
     def __init__(self, n_classes: int, n_frames: int, frame_size: int, video_list_path: str, video_label_path: str, image_tmpl: str = "{:06d}.jpg") -> None:
@@ -59,12 +64,12 @@ class VideoFramesDataset(Dataset):
             reader = csv.DictReader(csvfile)
             for row in reader:
                 self.name_list.append(row['name'])
-    
+
     def read_frames(self, path: str, n_frames: int):
         step = n_frames//self.n_frames
         n_frames = step*self.n_frames
-        if step>1:
-            start = torch.randint(1,step+1,(1,)).item()
+        if step > 1:
+            start = torch.randint(1, step+1, (1,)).item()
         else:
             start = 1
         return [self.transform(Image.open(os.path.join(path, self.image_tmpl.format(idx))))for idx in range(start, n_frames+1, step)]
@@ -76,41 +81,42 @@ class VideoFramesDataset(Dataset):
     def __getitem__(self, idx):
         while True:
             path, n_frames, label = self.video_files[idx]
-            if n_frames<self.n_frames:
+            if n_frames < self.n_frames:
                 idx += 1
                 continue
             else:
                 break
         frames = self.read_frames(path, n_frames)
         frames = torch.stack(frames, dim=0)
-        label = torch.tensor(label,dtype=torch.long)
+        label = torch.tensor(label, dtype=torch.long)
         #name = self.name_list[label]
         return {'frames': frames, 'label': label}
 
     def __len__(self):
         return len(self.video_files)
 
-from torchvision.io import read_video
+
 class VideoDataset(VideoFramesDataset):
     def __init__(self, n_classes: int, n_frames: int, frame_size: int, video_list_path: str, video_label_path: str, image_tmpl: str = "{:06d}.jpg") -> None:
         self.name_dict = {}
-        super().__init__(n_classes, n_frames, frame_size, video_list_path, video_label_path, image_tmpl)
+        super().__init__(n_classes, n_frames, frame_size,
+                         video_list_path, video_label_path, image_tmpl)
         self.transform = _transform_video(frame_size)
-    
+
     def read_labels(self):
         with open(self.video_label_path, newline='') as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
                 self.name_list.append(row['name'])
                 self.name_dict[row['name']] = int(row['id'])
-    
+
     def read_file_list(self):
         root, _ = os.path.split(self.video_list_path)
         with open(self.video_list_path, 'r') as file:
             for line in file:
                 path, n_frames = line.split(' ')[0:2]
                 path = os.path.join(root, path)
-                name = path.split('/')[-2].replace('_',' ')
+                name = path.split('/')[-2].replace('_', ' ')
                 label = self.name_dict[name]
                 self.video_files.append((path, label))
 
@@ -120,11 +126,11 @@ class VideoDataset(VideoFramesDataset):
         if step == 0:
             return None
         n_frames = step*self.n_frames
-        if step>1:
-            start = torch.randint(0,step,(1,)).item()
+        if step > 1:
+            start = torch.randint(0, step, (1,)).item()
         else:
             start = 0
-        return self.transform(frames[start:n_frames:step,...].float().transpose(3,1))
+        return self.transform(frames[start:n_frames:step, ...].float().transpose(3, 1))
 
     def __getitem__(self, idx):
         while True:
@@ -134,5 +140,5 @@ class VideoDataset(VideoFramesDataset):
                 idx += 1
                 continue
             else:
-                label = torch.tensor(label,dtype=torch.long)
+                label = torch.tensor(label, dtype=torch.long)
                 return {'frames': frames, 'label': label}
