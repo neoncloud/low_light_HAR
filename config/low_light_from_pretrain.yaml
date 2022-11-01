@@ -1,5 +1,5 @@
 resume:
-pretrain: /home/neoncloud/low_light/checkpoints/ViT-B/16/hmdb_16/2022_10_29_19_35_48/last_model.pt
+pretrain: /home/neoncloud/low_light/checkpoints/ViT-B/16/hmdb/2022_10_31_00_00_26/model_best.pt
 seed: 114514
 data:
   dataset: low_light
@@ -19,14 +19,22 @@ data:
 network:
   arch: ViT-B/16
   motion:
-    thres: 2.0
-    num_layers: 6
-    init: False
-  visual:
     train: True
-  alpha:
-    value: 0.3
+    thres: 4.0
+    num_layers: 4
+    init: False
+    lr: 1.e-8
+  visual:
     train: False
+    lr: 1.e-7
+  fusion:
+    type: 'transf' # transf or mlp or mean
+    train: True
+    lr: 1.e-8
+  other:
+    alpha: 0.1 # deprecated
+    train: False
+    lr: 1.e-8
   text:
     train: False
 optim:
@@ -37,17 +45,17 @@ optim:
   start_epoch: 0
   epoch_offset: 0
   optim: adamw
-  lr: 8.e-8
-  f_ratio: 0.2
-  lr_warmup_step: 5
+  lr: 1.e-7
+  # f_ratio: 0.02
+  lr_warmup_step: 50
   momentum: 0.9
   weight_decay: 0.01
   lr_decay_step: 15
   lr_decay_factor: 0.1
   clip_gradient: 20
-  grad_accu: 1
+  grad_accu: 2
 logging:
-  write_freq: 20
+  write_freq: 6400
   eval_freq: 1
-  save_freq: 5
+  save_freq: 2
   chpt_dir: ./checkpoints

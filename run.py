@@ -114,9 +114,11 @@ def train():
                 text_token = text_tokenized[text_id, data['label'], :].cuda()
             else:
                 text_features = all_text_features[data['label'], text_id, :]
+            
+            grad_accu_ctx = model.no_sync() if cfg.optim.distributed and (i+1) % cfg.optim.grad_accu != 0 else nullcontext()
 
             ########## FORWARD #############
-            with amp_ctx:
+            with amp_ctx, grad_accu_ctx:
                 if cfg.network.text.train:
                     logits_per_image, logits_per_text = model(
                         data['frames'].cuda(), text=text_token.cuda())
@@ -166,12 +168,12 @@ def train():
                 lr_scheduler.step(best_prec1)
                 if is_best:
                     print('Saving:')
-                    best_saving(working_dir, epoch, model, optimizer)
+                    best_saving(working_dir, epoch, model, optimizer, lr_scheduler)
 
             if epoch % cfg.logging.save_freq == 0:
                 print('Saving:')
                 filename = "{}/last_model.pt".format(working_dir)
-                epoch_saving(epoch, model, optimizer, filename)
+                epoch_saving(epoch, model, optimizer, lr_scheduler, filename)
 
 @torch.no_grad()
 def eval(curr_epoch):
