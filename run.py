@@ -27,7 +27,7 @@ def load_model():
     if cfg.resume is not None:
         state_dict = torch.load(cfg.resume, map_location='cuda')
         start_epoch = state_dict['epoch']
-        model, _transform = load(
+        model_, _transform = load(
             name=cfg.network.arch,
             jit=False,
             pretrain=True,
@@ -44,7 +44,7 @@ def load_model():
     elif cfg.pretrain is not None:
         state_dict = torch.load(cfg.pretrain)
         start_epoch = 1
-        model, _transform = load(
+        model_, _transform = load(
             name=cfg.network.arch,
             jit=False,
             pretrain=True,
@@ -66,19 +66,18 @@ def load_model():
     train_dataloader, validate_dataloader, name_list = get_dataloder(cfg)
     num_text_aug, text_tokenized = text_prompt(name_list)
     with torch.no_grad():
-        all_text_features = model.encode_text(
-            rearrange(text_tokenized, 'c n d -> (c n) d').cuda())
+        all_text_features = model_.encode_text(
+            rearrange(text_tokenized, 'c n d -> (c n) d'))
         all_text_features = rearrange(
-            all_text_features, '(c n) d -> c n d', n=num_text_aug)
+            all_text_features, '(c n) d -> c n d', n=num_text_aug).cuda()
     if cfg.optim.distributed:
         from torch.nn.parallel import DistributedDataParallel
         print(f"[{os.getpid()}] (local_rank = {local_rank}) training...")
-        model = DistributedDataParallel(
-            model.cuda(), device_ids=[local_rank], output_device=local_rank).module
+        model_ = DistributedDataParallel(model_.cuda(), device_ids=[local_rank],output_device=local_rank)
     else:
-        model = model.cuda()
+        model_ = model_.cuda()
 
-    return model, optimizer, lr_scheduler, start_epoch, train_dataloader, validate_dataloader, num_text_aug, text_tokenized, all_text_features
+    return model_, optimizer, lr_scheduler, start_epoch, train_dataloader, validate_dataloader, num_text_aug, text_tokenized, all_text_features
 
 
 def train():
@@ -105,8 +104,7 @@ def train():
             else:
                 text_features = all_text_features[data['label'], text_id, :]
 
-            grad_accu_ctx = model.no_sync() if cfg.optim.distributed and (
-                i+1) % cfg.optim.grad_accu != 0 else nullcontext()
+            grad_accu_ctx = model_.no_sync() if cfg.optim.distributed and (i+1) % cfg.optim.grad_accu != 0 else nullcontext()
 
             ########## FORWARD #############
             with amp_ctx, grad_accu_ctx:
@@ -120,8 +118,7 @@ def train():
 
                 # Make ground Truth (confussion matrix)
                 label = data['label'].unsqueeze(-1)
-                ground_truth = (
-                    0.94+0.05*torch.randn(label.shape[0]))*(torch.eq(label, label.T).to(torch.float16))
+                ground_truth = (0.99+0.01*torch.randn(label.shape[0]))*(torch.eq(label, label.T).to(torch.float16))
                 #ground_truth += torch.rand_like(ground_truth)*0.01
 
                 loss_img = criterion_img(logits_per_image, ground_truth.cuda())
@@ -222,16 +219,20 @@ if __name__ == '__main__':
         torch.cuda.set_device(local_rank)
     else:
         local_rank = 0
-    torch.manual_seed(cfg.seed)
+    torch.manual_seed(cfg.seed+local_rank)
     torch.backends.cudnn.benchmark = True
 
     working_dir = os.path.join(cfg.logging.chpt_dir, cfg.network.arch,
                                cfg.data.dataset, time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime()))
     writer = SummaryWriter(working_dir)
 
-    model, optimizer, lr_scheduler, start_epoch, train_dataloader, validate_dataloader, num_text_aug, text_tokenized, all_text_features = load_model()
+    model_, optimizer, lr_scheduler, start_epoch, train_dataloader, validate_dataloader, num_text_aug, text_tokenized, all_text_features = load_model()
     gc.collect()
     torch.cuda.empty_cache()
+    if cfg.optim.distributed:
+        model = model_.module
+    else:
+        model = model_
     if args.train:
         train()
     elif args.eval:
