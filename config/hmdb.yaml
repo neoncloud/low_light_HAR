@@ -1,5 +1,5 @@
-resume: /home/neoncloud/low_light/checkpoints/ViT-B/16/hmdb/2022_10_30_20_17_42/model_best.pt
-pretrain: #/mnt/e/vit-b-16-8f.pt
+resume:
+pretrain: /mnt/e/vit-b-16-8f.pt
 seed: 1234
 data:
   dataset: hmdb

@@ -2,13 +2,13 @@ import os
 import torch
 from torch.cuda.amp import GradScaler, autocast
 #from torch.nn.utils import clip_grad_norm_
-from model.network import build_model, convert_models_to_fp32
+from model.network import convert_models_to_fp32
 from model.kl_loss import KLLoss
 from model.text_prompt import text_prompt
 from model.optimizer import get_optimizer, get_lr_scheduler
 from data.dataloder import get_dataloder
 from util.save import best_saving, epoch_saving
-from clip.model import convert_weights
+from model.network import load
 import yaml
 import argparse
 from dotmap import DotMap
@@ -21,47 +21,15 @@ import gc
 
 # import debugpy
 # debugpy.listen(("localhost", 5678))
-# def hook_fn(m, i, o):
-#   print(m)
-#   print("------------Input Grad------------")
-
-#   for grad in i:
-#     try:
-#       print(grad.shape)
-#     except AttributeError:
-#       print ("None found for Gradient")
-
-#   print("------------Output Grad------------")
-#   for grad in o:
-#     try:
-#       print(grad.shape)
-#     except AttributeError:
-#       print ("None found for Gradient")
-#   print("\n")
 
 
 def load_model():
     if cfg.resume is not None:
         state_dict = torch.load(cfg.resume, map_location='cuda')
         start_epoch = state_dict['epoch']
-        model = build_model(
-            state_dict=state_dict['model_state_dict'],
-            pretrain=True,
-            motion_layers=cfg.network.motion.num_layers,
-            motion_layers_init=False,
-            train_visual=cfg.visual.train,
-            T=cfg.data.seg_length,
-            thres=cfg.network.motion.thres,
-            alpha=cfg.network.other.alpha,
-            fusion_type=cfg.network.fusion.type
-        ).cuda()
-        optimizer = get_optimizer(cfg, model)
-        optimizer.load_state_dict(state_dict['optimizer_state_dict'])
-    elif cfg.pretrain is not None:
-        state_dict = torch.load(cfg.pretrain)
-        start_epoch = 1
-        model = build_model(
-            state_dict=state_dict['model_state_dict'],
+        model, _transform = load(
+            name=cfg.network.arch,
+            jit=False,
             pretrain=True,
             motion_layers=cfg.network.motion.num_layers,
             motion_layers_init=cfg.network.motion.init,
@@ -70,10 +38,28 @@ def load_model():
             thres=cfg.network.motion.thres,
             alpha=cfg.network.other.alpha,
             fusion_type=cfg.network.fusion.type
-        ).cuda()
+        )
+        optimizer = get_optimizer(cfg, model)
+        optimizer.load_state_dict(state_dict['optimizer_state_dict'])
+    elif cfg.pretrain is not None:
+        state_dict = torch.load(cfg.pretrain)
+        start_epoch = 1
+        model, _transform = load(
+            name=cfg.network.arch,
+            jit=False,
+            pretrain=True,
+            motion_layers=cfg.network.motion.num_layers,
+            motion_layers_init=cfg.network.motion.init,
+            train_visual=cfg.visual.train,
+            T=cfg.data.seg_length,
+            thres=cfg.network.motion.thres,
+            alpha=cfg.network.other.alpha,
+            fusion_type=cfg.network.fusion.type
+        )
         optimizer = get_optimizer(cfg, model)
     else:
         raise NotImplementedError
+    model.load_state_dict(state_dict['model_state_dict'],False)
     del state_dict
     lr_scheduler = get_lr_scheduler(cfg, optimizer)
     #lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,'max')
@@ -88,7 +74,9 @@ def load_model():
         from torch.nn.parallel import DistributedDataParallel
         print(f"[{os.getpid()}] (local_rank = {local_rank}) training...")
         model = DistributedDataParallel(
-            model, device_ids=[local_rank], output_device=local_rank).module
+            model.cuda(), device_ids=[local_rank], output_device=local_rank).module
+    else:
+        model = model.cuda()
 
     return model, optimizer, lr_scheduler, start_epoch, train_dataloader, validate_dataloader, num_text_aug, text_tokenized, all_text_features
 

@@ -2,7 +2,7 @@ import hashlib
 import os
 import urllib
 import warnings
-from typing import Any, Union, List
+from typing import Union, List
 from pkg_resources import packaging
 
 import torch
@@ -77,8 +77,9 @@ def _convert_image_to_rgb(image):
 
 
 def _transform(n_px, s=False):
+    resize = 256*n_px//224
     return Compose([
-        Resize(n_px, interpolation=BICUBIC),
+        Resize(resize, interpolation=BICUBIC),
         CenterCrop(n_px),
         #RandomVerticalFlip(1.0 if s else 0.0),
         #RandomGrayscale(1.0 if s else 0.0),

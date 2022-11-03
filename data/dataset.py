@@ -135,7 +135,7 @@ class VideoDataset(VideoFramesDataset):
     def __getitem__(self, idx):
         while True:
             path, label = self.video_files[idx]
-            frames = self.read_frames(path)
+            frames = self.read_frames(path).permute(0,3,1,2)
             if frames is None:
                 idx += 1
                 continue
