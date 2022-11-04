@@ -7,6 +7,14 @@ Lecturer: Dr. Xu Yuecong
 
 The design and coding of the network is heavily referenced from https://github.com/sallymmx/ActionCLIP
 
+# Performance
+On [ARID](https://xuyu0010.github.io/arid.html) dataset
+* Top1: `82.1875`
+* Top5: `99.375`
+
+# Checkpoints
+I will make it available after 09 Nov 2022 :)
+
 # Requirement
 ```
 pip3 install torch torchvison tqdm yaml dotmap einops av
