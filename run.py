@@ -8,7 +8,7 @@ from model.text_prompt import text_prompt
 from model.optimizer import get_optimizer, get_lr_scheduler
 from data.dataloder import get_dataloder
 from util.save import best_saving, epoch_saving
-from model.network import load
+from model.network import load, build_model
 import yaml
 import argparse
 from dotmap import DotMap
@@ -27,9 +27,8 @@ def load_model():
     if cfg.resume is not None:
         state_dict = torch.load(cfg.resume, map_location='cuda')
         start_epoch = state_dict['epoch']
-        model_, _transform = load(
-            name=cfg.network.arch,
-            jit=False,
+        model_ = build_model(
+            state_dict=state_dict['model_state_dict'],
             pretrain=True,
             motion_layers=cfg.network.motion.num_layers,
             motion_layers_init=cfg.network.motion.init,
@@ -38,13 +37,16 @@ def load_model():
             thres=cfg.network.motion.thres,
             alpha=cfg.network.other.alpha,
             fusion_type=cfg.network.fusion.type
-        )
-        optimizer = get_optimizer(cfg, model)
-        optimizer.load_state_dict(state_dict['optimizer_state_dict'])
+        ).cuda()
+        if args.train:
+            optimizer = get_optimizer(cfg, model_)
+            optimizer.load_state_dict(state_dict['optimizer_state_dict'])
+        else:
+            optimizer = None
     elif cfg.pretrain is not None:
         state_dict = torch.load(cfg.pretrain)
         start_epoch = 1
-        model_, _transform = load(
+        model_, _ = load(
             name=cfg.network.arch,
             jit=False,
             pretrain=True,
@@ -56,20 +58,26 @@ def load_model():
             alpha=cfg.network.other.alpha,
             fusion_type=cfg.network.fusion.type
         )
-        optimizer = get_optimizer(cfg, model)
+        model_.load_state_dict(state_dict['model_state_dict'],False)
+        if args.train:
+            optimizer = get_optimizer(cfg, model_)
+        else:
+            optimizer = None
     else:
         raise NotImplementedError
-    model.load_state_dict(state_dict['model_state_dict'],False)
     del state_dict
-    lr_scheduler = get_lr_scheduler(cfg, optimizer)
+    if args.train:
+        lr_scheduler = get_lr_scheduler(cfg, optimizer)
+    else:
+        lr_scheduler = None
     #lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,'max')
     train_dataloader, validate_dataloader, name_list = get_dataloder(cfg)
     num_text_aug, text_tokenized = text_prompt(name_list)
     with torch.no_grad():
         all_text_features = model_.encode_text(
-            rearrange(text_tokenized, 'c n d -> (c n) d'))
+            rearrange(text_tokenized, 'c n d -> (c n) d').cuda())
         all_text_features = rearrange(
-            all_text_features, '(c n) d -> c n d', n=num_text_aug).cuda()
+            all_text_features, '(c n) d -> c n d', n=num_text_aug)
     if cfg.optim.distributed:
         from torch.nn.parallel import DistributedDataParallel
         print(f"[{os.getpid()}] (local_rank = {local_rank}) training...")
@@ -149,12 +157,15 @@ def train():
             if epoch % cfg.logging.eval_freq == 0:
                 with amp_ctx:
                     torch.cuda.empty_cache()
-                    prec1 = eval(epoch)
+                    top_1,top_5 = eval(epoch)
+                    writer.add_scalar('Top 1', top_1, epoch*len(train_dataloader))
+                    writer.add_scalar('Top 5', top_5, epoch*len(train_dataloader))
+                    print('Epoch: [{}/{}]: Top1: {}, Top5: {}'.format(epoch, cfg.optim.epochs, top_1, top_5))
                     torch.cuda.empty_cache()
                     gc.collect()
-                is_best = prec1 > best_prec1
-                best_prec1 = max(prec1, best_prec1)
-                print('Testing: {}/{}'.format(prec1, best_prec1))
+                is_best = top_1 > best_prec1
+                best_prec1 = max(top_1, best_prec1)
+                print('Testing: {}/{}'.format(top_1, best_prec1))
                 lr_scheduler.step(best_prec1)
                 if is_best:
                     print('Saving:')
@@ -168,7 +179,7 @@ def train():
 
 
 @torch.no_grad()
-def eval(curr_epoch):
+def eval():
     model.eval()
     if cfg.network.text.train:
         all_class_features = model.encode_text(
@@ -194,11 +205,7 @@ def eval(curr_epoch):
                             dim=-1).to(torch.float32).sum()
     top_1 = (corr_1 / num * 100).cpu().item()
     top_5 = (corr_5 / num * 100).cpu().item()
-    print('Epoch: [{}/{}]: Top1: {}, Top5: {}'.format(curr_epoch,
-          cfg.optim.epochs, top_1, top_5))
-    writer.add_scalar('Top 1', top_1, curr_epoch*len(train_dataloader))
-    writer.add_scalar('Top 5', top_5, curr_epoch*len(train_dataloader))
-    return top_1
+    return top_1, top_5
 
 
 if __name__ == '__main__':
@@ -236,4 +243,5 @@ if __name__ == '__main__':
     if args.train:
         train()
     elif args.eval:
-        eval(0)
+        top_1, top_5 = eval()
+        print('Epoch: [{}/{}]: Top1: {}, Top5: {}'.format(0, cfg.optim.epochs, top_1, top_5))
