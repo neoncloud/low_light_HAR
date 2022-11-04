@@ -3,7 +3,7 @@ import torch.nn.functional as F
 
 
 class DarkEnhance(torch.nn.Module):
-    def __init__(self, patch_size: int = 7, pad_size: int = 3, omega: float = 0.98, t0: float = 0.98) -> None:
+    def __init__(self, patch_size: int = 7, pad_size: int = 3, omega: float = 0.98, t0: float = 0.15) -> None:
         super().__init__()
         self.omega = omega
         self.t0 = torch.tensor([t0])
@@ -32,12 +32,12 @@ class DarkEnhance(torch.nn.Module):
         return A[:, None, None, :]
 
     def estimate_transmission(self, image: torch.Tensor, A: torch.Tensor):
-        image /= A
-        transmission = 1 - self.omega * self.get_dark_channel(image)
+        transmission = 1 - self.omega * self.get_dark_channel(image/A)
         return transmission
 
     def dehaze(self, image: torch.Tensor, A: torch.Tensor, transmission: torch.Tensor):
-        return A + (image - A)/torch.maximum(transmission, self.t0).unsqueeze(-1)
+        J = A + (image - A)/torch.maximum(transmission, self.t0.to(transmission.device)).unsqueeze(-1)
+        return J
         
 
     def forward(self, HazeImg: torch.Tensor):
@@ -48,4 +48,4 @@ class DarkEnhance(torch.nn.Module):
         dehaze_image = self.dehaze(HazeImg_, A, transmission)
         dehaze_image = 1-dehaze_image / \
             torch.amax(dehaze_image, (1, 2, 3), True)
-        return (dehaze_image*255).to(dtype=torch.uint8)
+        return dehaze_image*255

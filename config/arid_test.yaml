@@ -9,10 +9,10 @@ data:
   batch_size: 32
   val_batch_size: 24
   worker: 10
-  num_classes: 11
+  num_classes: 10
   image_tmpl: '{:06d}.jpg'
   train_list:
-  val_list: /home/neoncloud/low_light_video/validate_.txt
+  val_list: /home/neoncloud/low_light_video/test_.txt
   label_list: /home/neoncloud/low_light_video/mapping_table.txt
   index_bias: 1
   input_size: 224

@@ -1,6 +1,7 @@
 import cv2, os, sys
 from torchvision.io import read_video
 from dark_enhance import DarkEnhance
+import torch
 
 enhancer = DarkEnhance().cuda()
 def dump_frames(vid_path, out_path):
@@ -9,7 +10,7 @@ def dump_frames(vid_path, out_path):
     #print('frames',frames.shape)
     vid_name = vid_path.split('/')[-1].split('.')[0]
     out_full_path = os.path.join(out_path, vid_name)
-    frames = enhancer.forward(frames.cuda())
+    frames = enhancer.forward(frames.cuda()).to(dtype=torch.uint8)
     fcount = int(frames.shape[0])
     try:
         os.mkdir(out_full_path)
