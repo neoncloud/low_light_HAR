@@ -157,7 +157,7 @@ def train():
             if epoch % cfg.logging.eval_freq == 0:
                 with amp_ctx:
                     torch.cuda.empty_cache()
-                    top_1,top_5 = eval(epoch)
+                    top_1,top_5 = eval()
                     writer.add_scalar('Top 1', top_1, epoch*len(train_dataloader))
                     writer.add_scalar('Top 5', top_5, epoch*len(train_dataloader))
                     print('Epoch: [{}/{}]: Top1: {}, Top5: {}'.format(epoch, cfg.optim.epochs, top_1, top_5))
