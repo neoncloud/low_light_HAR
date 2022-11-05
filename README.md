@@ -5,7 +5,7 @@ This repo is for NTU EE6222 Assignment: Action Recognition in the Dark
 
 Lecturer: Dr. Xu Yuecong
 
-The design and coding of the network is heavily referenced from https://github.com/sallymmx/ActionCLIP
+The design and coding of the network is heavily referenced from [ActionCLIP](https://github.com/sallymmx/ActionCLIP)
 
 # Performance
 On [ARID](https://xuyu0010.github.io/arid.html) dataset
