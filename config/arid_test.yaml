@@ -1,4 +1,4 @@
-resume: ./checkpoints/arid/2022_11_03_06_05_00/last_model.pt
+resume: /home/neoncloud/low_light/test/model_best_modified.pt
 pretrain:
 seed: 42
 data:

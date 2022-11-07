@@ -26,8 +26,7 @@ class DarkEnhance(torch.nn.Module):
         #A = imgVec[torch.arange(imgVec.shape[0]).unsqueeze(-1),indices[:,int(width * height - numpx):-1]].mean(1)
         # A = torch.gather(imgVec, 1, indices[:, int(
         #     width * height - numpx):-1, None]).mean(1)
-        _, indices = torch.topk(jDarkVec, k=int(
-            width * height - numpx), dim=1, largest=False)
+        _, indices = torch.topk(jDarkVec, k=int(numpx), dim=1, largest=False)
         A = torch.gather(imgVec, 1, indices[:, :, None]).mean(1)
         return A[:, None, None, :]
 
