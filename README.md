@@ -123,6 +123,11 @@ data:
 ```shell
 python run.py --eval --config ./config/arid_test.yaml
 ```
+You can also use `run_script.py` to evaluate with `*.mp4` files in a folder. It will output predicted labels:
+
+```shell
+python run_script.py --config ./config/arid_test.yaml --path /home/neoncloud/low_light_video/test
+```
 
 ## Run training
 ```shell
