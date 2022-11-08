@@ -10,10 +10,10 @@ class ResidualCrossAttentionBlock(ResidualAttentionBlock):
     
     def attention(self, x: torch.Tensor, y: torch.Tensor=None):
         self.attn_mask = self.attn_mask.to(dtype=x.dtype, device=x.device) if self.attn_mask is not None else None
-        return self.attn(y, x, x, need_weights=False, attn_mask=self.attn_mask)[0]
+        return self.attn(x, x, x, need_weights=False, attn_mask=self.attn_mask)[0]
 
     def forward(self, x: torch.Tensor, y: torch.Tensor=None):
-        x = x + self.attention(self.ln_1(x), self.ln_1_y(y))
+        x = x + self.attention(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
         return x
 
@@ -22,9 +22,9 @@ class CrossTransformer(Transformer):
         super().__init__(width, layers, heads, attn_mask)
         self.resblocks = nn.ModuleList([ResidualCrossAttentionBlock(width, heads, attn_mask) for _ in range(layers)])
     
-    def forward(self, x: torch.Tensor, y: list):
-        for blk, y_ in zip(self.resblocks, y[:len(self.resblocks)]):
-            x = torch.utils.checkpoint.checkpoint(blk, x, y_)
+    def forward(self, x: torch.Tensor, y: list=None):
+        for blk in self.resblocks:
+            x = torch.utils.checkpoint.checkpoint(blk, x)
         return x
 
 class MotionPrompt(VisionTransformer):
@@ -57,7 +57,7 @@ class MotionPrompt(VisionTransformer):
         x = torch.utils.checkpoint.checkpoint(self.ln_pre, x)
 
         x = x.permute(1, 0, 2)  # NLD -> LND
-        x = self.transformer(x, y)
+        x = self.transformer(x)
         x = x.permute(1, 0, 2)  # LND -> NLD
 
         x = self.ln_post(x[:, 0, :])

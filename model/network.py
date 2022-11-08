@@ -245,6 +245,38 @@ class SandevistanCLIP(CLIP):
         # shape = [global_batch_size, global_batch_size]
         return logits_per_image, logits_per_text
 
+    def test(self, video: torch.Tensor, text: Optional[torch.Tensor] = None, text_features: Optional[torch.Tensor] = None):
+        if text_features is None:
+            text_features = self.encode_text(text)
+        text_features = text_features / \
+            text_features.norm(dim=-1, keepdim=True)
+
+        b, t, c, h, w = video.shape
+        motion, frames = self.frame_diff(video)
+        motion = rearrange(
+            motion, 'b t c h w -> (b t) c h w').detach()
+        frames = rearrange(
+            frames, 'b t c h w -> (b t) c h w').detach()
+        class_features, frame_features = self.visual(
+            frames.type(self.dtype).requires_grad_(True))
+        motion_features = self.encode_motion(
+            motion.type(self.dtype).requires_grad_(True),
+            [f.requires_grad_(True) for f in frame_features])
+
+        class_features = rearrange(class_features, '(b t) c -> t b c', b=b)
+        motion_features = rearrange(motion_features, '(b t) c -> t b c', b=b)
+
+        video_features = (motion_features+class_features)/2
+        video_features = self.fusion(video_features)
+        video_features = video_features / \
+            video_features.norm(dim=-1, keepdim=True)
+        class_features = class_features.mean(0) / \
+            class_features.norm(dim=-1, keepdim=True)
+        motion_features = motion_features.mean(0) / \
+            motion_features.norm(dim=-1, keepdim=True)
+
+        return text_features, video_features, class_features, motion_features
+
     def inference(self, image: torch.Tensor, text: Optional[torch.Tensor] = None, text_features: Optional[torch.Tensor] = None):
         if text_features is None:
             text_features = self.encode_text(text)
