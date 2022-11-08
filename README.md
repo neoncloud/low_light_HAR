@@ -1,4 +1,6 @@
 # Human Action Recognition in the Dark using CLIP
+[Colab](https://colab.research.google.com/drive/14x5zyJFYTCSXnbHqa6Z7_ZAay7uLlTKi?usp=sharing)
+
 My name is Shuai Chenhao.
 
 This repo is for NTU EE6222 Assignment: Action Recognition in the Dark
@@ -6,7 +8,6 @@ This repo is for NTU EE6222 Assignment: Action Recognition in the Dark
 Lecturer: Dr. Xu Yuecong
 
 The design and coding of the network is heavily referenced from [ActionCLIP](https://github.com/sallymmx/ActionCLIP)
-
 # Performance
 On [ARID](https://xuyu0010.github.io/arid.html) dataset
 * Top1: `82.1875`
@@ -121,6 +122,11 @@ data:
 ## Run evaluation
 ```shell
 python run.py --eval --config ./config/arid_test.yaml
+```
+You can also use `run_script.py` to evaluate with `*.mp4` files in a folder. It will output predicted labels:
+
+```shell
+python run_script.py --config ./config/arid_test.yaml --path /home/neoncloud/low_light_video/test
 ```
 
 ## Run training
