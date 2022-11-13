@@ -142,4 +142,4 @@ class VideoDataset(VideoFramesDataset):
                 continue
             else:
                 label = torch.tensor(label, dtype=torch.long)
-                return {'frames': frames.permute(0,3,1,2), 'label': label}
+                return {'frames': frames, 'label': label}
