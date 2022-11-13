@@ -130,15 +130,15 @@ class VideoDataset(VideoFramesDataset):
             start = torch.randint(0, step, (1,)).item()
         else:
             start = 0
-        return self.transform(frames[start:n_frames:step, ...].float().transpose(3, 1))
+        return self.transform(frames[start:n_frames:step, ...].transpose(3, 1))
 
     def __getitem__(self, idx):
         while True:
             path, label = self.video_files[idx]
-            frames = self.read_frames(path).permute(0,3,1,2)
+            frames = self.read_frames(path)
             if frames is None:
                 idx += 1
                 continue
             else:
                 label = torch.tensor(label, dtype=torch.long)
-                return {'frames': frames, 'label': label}
+                return {'frames': frames.permute(0,3,1,2), 'label': label}
