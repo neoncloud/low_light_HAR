@@ -14,7 +14,7 @@ On [ARID](https://xuyu0010.github.io/arid.html) dataset
 * Top5: `99.375`
 
 # Checkpoints
-I will make it available after 09 Nov 2022 :)
+[gdrive](https://drive.google.com/file/d/1vS9jgDyBM57EFCyOpNGJ-FpoTe6VAr5l/view?usp=share_link)
 
 # Requirement
 ```
