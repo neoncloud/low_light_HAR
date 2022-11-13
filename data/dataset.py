@@ -121,7 +121,7 @@ class VideoDataset(VideoFramesDataset):
                 self.video_files.append((path, label))
 
     def read_frames(self, path: str):
-        frames, _, _ = read_video(path)
+        frames, _, _ = read_video(path, pts_unit='sec')
         step = frames.shape[0]//self.n_frames
         if step == 0:
             return None
@@ -130,12 +130,13 @@ class VideoDataset(VideoFramesDataset):
             start = torch.randint(0, step, (1,)).item()
         else:
             start = 0
-        return self.transform(frames[start:n_frames:step, ...].float().transpose(3, 1))
+        frames = frames[start:n_frames:step, ...].float()/255.0
+        return self.transform(frames.permute(0,3,1,2))
 
     def __getitem__(self, idx):
         while True:
             path, label = self.video_files[idx]
-            frames = self.read_frames(path).permute(0,3,1,2)
+            frames = self.read_frames(path)
             if frames is None:
                 idx += 1
                 continue
